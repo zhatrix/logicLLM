@@ -35,8 +35,10 @@
 
 ## 在线资源
 
-- 🤖 LoRA 权重（PEFT 格式，ModelScope）：https://www.modelscope.cn/models/zh4trix/logistics-qwen-lora
-- 🚀 在线演示（ModelScope 创空间，Gradio）：https://www.modelscope.cn/studios/zh4trix/logistics-llm
+- 🤗 HF Spaces 在线演示（ZeroGPU）：https://huggingface.co/spaces/zhatrix/logistics-llm
+- 🤗 LoRA 权重（PEFT，HF Hub）：https://huggingface.co/zhatrix/logistics-qwen-lora
+- 🚀 ModelScope 创空间：https://www.modelscope.cn/studios/zh4trix/logistics-llm
+- 🤖 LoRA 权重（PEFT，ModelScope）：https://www.modelscope.cn/models/zh4trix/logistics-qwen-lora
 - 📦 LoRA 权重（MLX 格式，GitHub Release）：https://github.com/zhatrix/logicLLM/releases/tag/v0.1.0
 
 ## 快速开始
@@ -127,6 +129,11 @@ uv run python scripts/convert_adapter_to_peft.py          # MLX adapter → PEFT
 uv run python scripts/publish_modelscope.py               # 上传 LoRA 到模型仓库 + 代码到创空间（需先 modelscope login）
 ```
 创空间入口是根目录 `app.py`（Gradio），依赖在 `requirements.txt`；7B 模型需要在创空间设置里选择 GPU 档位（CPU 档跑不动）。
+
+## 部署到 HF Spaces（ZeroGPU）
+
+`app.py` 检测到 `SPACE_ID` + `spaces` 包时走非流式路径，把整段推理放进 `@spaces.GPU` 函数；Space 变量：`HF_4BIT=0`、`MODEL_SOURCE=hf`、`HF_ADAPTER=zhatrix/logistics-qwen-lora`。
+重新发布：`uv run python scripts/publish_hf.py`（需先 `hf auth login`）。
 
 ## 踩坑记录（mlx_lm 0.31）
 

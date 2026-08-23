@@ -10,3 +10,4 @@ numpy
 httpx
 pydantic
 modelscope
+spaces; sys_platform == "linux"

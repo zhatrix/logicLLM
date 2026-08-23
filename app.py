@@ -1,7 +1,9 @@
-"""Gradio 入口（ModelScope 创空间 / HF Spaces）。
+"""Gradio 入口（ModelScope 创空间 / HF Spaces ZeroGPU）。
 
-环境变量：LLM_BACKEND=hf（默认）、HF_BASE_MODEL、HF_ADAPTER、HF_4BIT。
+环境变量：LLM_BACKEND=hf（默认）、HF_BASE_MODEL、HF_ADAPTER、HF_4BIT、MODEL_SOURCE。
 本地调试：LLM_BACKEND=mlx uv run python app.py  （复用本机 mlx 服务）
+
+ZeroGPU：检测到 `spaces` 包 + SPACE_ID 时走非流式路径，整段推理放进 @spaces.GPU 函数里执行。
 """
 from __future__ import annotations
 
@@ -15,6 +17,14 @@ import gradio as gr  # noqa: E402
 from logicllm import config  # noqa: E402
 from logicllm.agent.core import LogisticsAgent  # noqa: E402
 from logicllm.tools.waybill import init_db  # noqa: E402
+
+ZERO_GPU = False
+if os.getenv("SPACE_ID"):
+    try:
+        import spaces  # noqa: F401
+        ZERO_GPU = True
+    except ImportError:
+        pass
 
 init_db()
 AGENT = LogisticsAgent()
@@ -60,6 +70,36 @@ async def respond(message: str, history: list[dict], use_tools: bool, use_rag: b
         yield head + answer
 
 
+def _trace_md(steps) -> str:
+    trace = []
+    for st in steps:
+        if st.kind == "rag":
+            trace.append("📚 知识库命中：" + "；".join(f"{h['title']}（{h['score']}）" for h in st.content["hits"]))
+        elif st.kind == "tool_call":
+            trace.append(f"🔧 调用 `{st.content['name']}` {_fmt(st.content['arguments'])}")
+        elif st.kind == "tool_result":
+            trace.append(f"↩ 结果 {_fmt(st.content)}")
+    return ("<details><summary>处理过程</summary>\n\n" + "\n\n".join(trace) + "\n\n</details>\n\n") if trace else ""
+
+
+if ZERO_GPU:
+    import asyncio
+
+    import spaces
+
+    @spaces.GPU(duration=120)
+    def respond_gpu(message: str, history: list[dict], use_tools: bool, use_rag: bool) -> str:
+        agent = LogisticsAgent(client=AGENT.client, kb=AGENT.kb, use_tools=use_tools, use_rag=use_rag)
+        msgs = [m for m in history if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)]
+        msgs.append({"role": "user", "content": message})
+        res = asyncio.run(agent.run(msgs))
+        return _trace_md(res.steps) + res.answer
+
+    CHAT_FN = respond_gpu
+else:
+    CHAT_FN = respond
+
+
 with gr.Blocks(title="物流通 · logicLLM") as demo:
     gr.Markdown(
         "## 🚚 物流通 · 物流行业大模型\n"
@@ -70,7 +110,7 @@ with gr.Blocks(title="物流通 · logicLLM") as demo:
         use_tools = gr.Checkbox(True, label="工具调用")
         use_rag = gr.Checkbox(True, label="知识库检索")
     gr.ChatInterface(
-        respond,
+        CHAT_FN,
         additional_inputs=[use_tools, use_rag],
         examples=[[e] for e in EXAMPLES],
         cache_examples=False,

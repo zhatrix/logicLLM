@@ -54,7 +54,7 @@ def embedder():
     global _embedder
     if _embedder is None:
         from sentence_transformers import SentenceTransformer
-        _embedder = SentenceTransformer(config.EMBED_MODEL, device="mps")
+        _embedder = SentenceTransformer(config.EMBED_MODEL, device=config.EMBED_DEVICE)
     return _embedder
 
 

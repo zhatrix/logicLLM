@@ -28,6 +28,24 @@ _ADAPTER = ROOT / "adapters" / "logistics-lora"
 LLM_ADAPTER = os.getenv("LLM_ADAPTER", str(_ADAPTER) if (LLM_BACKEND == "mlx" and (_ADAPTER / "adapters.safetensors").exists()) else "")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-m3")
 
+
+def _default_embed_device() -> str:
+    # ZeroGPU（HF Spaces）只允许在 @spaces.GPU 函数里用 CUDA，检索模型走 CPU
+    if os.getenv("SPACES_ZERO_GPU") or os.getenv("SPACE_ID"):
+        return "cpu"
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+    except Exception:  # noqa: BLE001
+        pass
+    return "cpu"
+
+
+EMBED_DEVICE = os.getenv("EMBED_DEVICE") or _default_embed_device()
+
 # hf 后端
 HF_BASE_MODEL = os.getenv("HF_BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 _PEFT = ROOT / "adapters" / "logistics-lora-peft"
