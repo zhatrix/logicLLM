@@ -27,6 +27,9 @@ if os.getenv("SPACE_ID"):
         pass
 
 init_db()
+if not config.KB_INDEX.exists():  # Space/创空间不带索引文件，首次启动现场构建（约 1 分钟）
+    from logicllm.rag.kb import build_index
+    print("知识库索引缺失，构建中…", build_index(), "块")
 AGENT = LogisticsAgent()
 
 EXAMPLES = [
