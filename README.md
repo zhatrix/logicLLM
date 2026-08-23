@@ -142,6 +142,12 @@ uv run python scripts/publish_modelscope.py               # 上传 LoRA 到模�
 3. `--mask-prompt` 只对**最后一条** assistant 消息计算 loss，多轮工具轨迹中间的 `tool_call` 不会被训练；`gen_sft.py` 会把每条轨迹额外拆出"到该次调用为止"的前缀样本。
 4. 训练样本必须与线上 prompt 一致（同一份 `tools`、同样注入检索上下文），否则微调效果被分布偏移抵消。
 
+## 踩坑记录（HF Spaces ZeroGPU）
+
+1. 主进程里 `torch.cuda.is_available()` 被伪造成 True，PEFT 会把 adapter 权重直接往 CUDA 加载而失败 → `PeftModel.from_pretrained(..., torch_device="cpu")`，挂好 PEFT 后再整体 `.to("cuda")`。
+2. 主进程加载 sentence-transformers（即使在 CPU）会让之后所有 `@spaces.GPU` 调用 RuntimeError → 索引用子进程构建，embedding 模型在 GPU 函数内懒加载（`EMBED_DEVICE=cpu`）。
+3. `@spaces.GPU` 不支持 async generator，Space 上走非流式 `respond_gpu`。
+
 ## 扩展
 
 - 加知识：往 `data/kb/` 放 Markdown，`make kb`。
