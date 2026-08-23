@@ -28,8 +28,9 @@ if os.getenv("SPACE_ID"):
 
 init_db()
 if not config.KB_INDEX.exists():  # Space/创空间不带索引文件，首次启动现场构建（约 1 分钟）
-    from logicllm.rag.kb import build_index
-    print("知识库索引缺失，构建中…", build_index(), "块")
+    import subprocess, sys
+    # 用子进程构建，避免在主进程里加载 embedding 模型（ZeroGPU 对主进程的 torch 状态很敏感）
+    subprocess.run([sys.executable, "scripts/build_kb.py"], check=False)
 AGENT = LogisticsAgent()
 
 EXAMPLES = [
@@ -121,4 +122,4 @@ with gr.Blocks(title="物流通 · logicLLM") as demo:
     )
 
 if __name__ == "__main__":
-    demo.queue(default_concurrency_limit=2).launch(server_name="0.0.0.0", server_port=int(os.getenv("PORT", "7860")))
+    demo.queue(default_concurrency_limit=2).launch(server_name="0.0.0.0", server_port=int(os.getenv("PORT", "7860")), show_error=True)
