@@ -8,7 +8,7 @@ KB_DIR = DATA_DIR / "kb"
 KB_INDEX = DATA_DIR / "kb_index.npz"
 ADAPTER_DIR = ROOT / "adapters" / "logistics-lora"
 
-# 推理后端：mlx（mlx_lm.server）或 ollama，两者都是 OpenAI 兼容接口
+# 推理后端：mlx（mlx_lm.server）/ ollama（两者是 OpenAI 兼容 HTTP 接口）/ hf（进程内 transformers+PEFT，Linux GPU / ModelScope / HF Spaces）
 LLM_BACKEND = os.getenv("LLM_BACKEND", "ollama")
 LLM_BASE_URL = os.getenv(
     "LLM_BASE_URL",
@@ -27,6 +27,12 @@ BASE_MODEL = os.getenv("BASE_MODEL", "mlx-community/Qwen2.5-7B-Instruct-4bit")
 _ADAPTER = ROOT / "adapters" / "logistics-lora"
 LLM_ADAPTER = os.getenv("LLM_ADAPTER", str(_ADAPTER) if (LLM_BACKEND == "mlx" and (_ADAPTER / "adapters.safetensors").exists()) else "")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-m3")
+
+# hf 后端
+HF_BASE_MODEL = os.getenv("HF_BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+_PEFT = ROOT / "adapters" / "logistics-lora-peft"
+HF_ADAPTER = os.getenv("HF_ADAPTER", str(_PEFT) if (_PEFT / "adapter_model.safetensors").exists() else "")
+HF_4BIT = os.getenv("HF_4BIT", "1") == "1"  # 仅 CUDA 生效（bitsandbytes）
 
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "4"))
 RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.35"))

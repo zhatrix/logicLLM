@@ -7,7 +7,8 @@ from typing import AsyncIterator
 
 from logicllm import config
 from logicllm.agent.prompts import build_system, openai_tools
-from logicllm.llm.client import ChatClient, ChatOut, tool_calls_to_openai
+from logicllm.llm import make_client
+from logicllm.llm.client import ChatOut, tool_calls_to_openai
 from logicllm.rag.kb import KnowledgeBase
 from logicllm.tools import all_specs, call_tool
 
@@ -25,9 +26,9 @@ class AgentResult:
 
 
 class LogisticsAgent:
-    def __init__(self, client: ChatClient | None = None, kb: KnowledgeBase | None = None,
+    def __init__(self, client=None, kb: KnowledgeBase | None = None,
                  use_tools: bool = True, use_rag: bool = True):
-        self.client = client or ChatClient()
+        self.client = client or make_client()
         self.kb = kb or KnowledgeBase()
         self.use_tools = use_tools
         self.use_rag = use_rag

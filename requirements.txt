@@ -1,0 +1,12 @@
+# ModelScope 创空间 / HF Spaces 运行依赖（hf 后端）
+torch>=2.4
+transformers>=4.45
+peft>=0.13
+accelerate
+bitsandbytes; sys_platform == "linux"
+sentence-transformers>=3.0
+gradio>=5.0
+numpy
+httpx
+pydantic
+modelscope
