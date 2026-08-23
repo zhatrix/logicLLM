@@ -31,8 +31,9 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-m3")
 # hf 后端
 HF_BASE_MODEL = os.getenv("HF_BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 _PEFT = ROOT / "adapters" / "logistics-lora-peft"
-HF_ADAPTER = os.getenv("HF_ADAPTER", str(_PEFT) if (_PEFT / "adapter_model.safetensors").exists() else "")
+HF_ADAPTER = os.getenv("HF_ADAPTER", str(_PEFT) if (_PEFT / "adapter_model.safetensors").exists() else "zh4trix/logistics-qwen-lora")
 HF_4BIT = os.getenv("HF_4BIT", "1") == "1"  # 仅 CUDA 生效（bitsandbytes）
+MODEL_SOURCE = os.getenv("MODEL_SOURCE", "modelscope")  # modelscope | hf：非本地路径的模型从哪里下载
 
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "4"))
 RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.35"))

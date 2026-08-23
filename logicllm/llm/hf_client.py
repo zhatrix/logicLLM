@@ -18,6 +18,19 @@ from logicllm.llm.client import ChatOut, ToolCall
 TOOL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 
 
+def resolve_model_path(repo_or_path: str) -> str:
+    """本地目录直接用；否则优先从 ModelScope 下载（国内创空间访问不了 HF），失败再回退 HF Hub id。"""
+    if not repo_or_path or os.path.isdir(repo_or_path):
+        return repo_or_path
+    if config.MODEL_SOURCE == "modelscope":
+        try:
+            from modelscope import snapshot_download
+            return snapshot_download(repo_or_path)
+        except Exception as e:  # noqa: BLE001
+            print(f"[hf_client] ModelScope 下载 {repo_or_path} 失败（{e}），回退 HF Hub")
+    return repo_or_path
+
+
 def _parse(text: str) -> ChatOut:
     calls = []
     for m in TOOL_RE.finditer(text):
@@ -35,8 +48,8 @@ class HFChatClient:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        self.base = base or config.HF_BASE_MODEL
-        self.adapter = adapter if adapter is not None else config.HF_ADAPTER
+        self.base = resolve_model_path(base or config.HF_BASE_MODEL)
+        self.adapter = resolve_model_path(adapter if adapter is not None else config.HF_ADAPTER)
         self.model_name = f"{self.base}+{os.path.basename(self.adapter)}" if self.adapter else self.base
         self.model = self.base  # 兼容 health 输出
         self.tok = AutoTokenizer.from_pretrained(self.base)

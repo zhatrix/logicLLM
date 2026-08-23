@@ -33,6 +33,12 @@
 **训练/推理分布一致**是微调见效的关键：SFT 样本与线上一样，system 里注入同一套检索上下文、请求里带同一份 `tools`
 （`scripts/gen_sft.py` 复用 `LogisticsAgent` 的检索与提示词构造）。
 
+## 在线资源
+
+- 🤖 LoRA 权重（PEFT 格式，ModelScope）：https://www.modelscope.cn/models/zh4trix/logistics-qwen-lora
+- 🚀 在线演示（ModelScope 创空间，Gradio）：https://www.modelscope.cn/studios/zh4trix/logistics-llm
+- 📦 LoRA 权重（MLX 格式，GitHub Release）：https://github.com/zhatrix/logicLLM/releases/tag/v0.1.0
+
 ## 快速开始
 
 ```bash
@@ -94,7 +100,9 @@ eval/cases.jsonl     评测用例
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `LLM_BACKEND` | `ollama` | `mlx` / `ollama` |
+| `LLM_BACKEND` | `ollama` | `mlx` / `ollama` / `hf`（进程内 transformers+PEFT，Linux GPU / 创空间） |
+| `HF_BASE_MODEL` / `HF_ADAPTER` | `Qwen/Qwen2.5-7B-Instruct` / `zh4trix/logistics-qwen-lora` | hf 后端的基座与 LoRA（本地路径或仓库 id，默认从 ModelScope 下载） |
+| `HF_4BIT` | `1` | CUDA 上用 bitsandbytes 4bit 加载 |
 | `LLM_BASE_URL` | 随后端 | OpenAI 兼容地址 |
 | `LLM_MODEL` | 随后端 | 模型名 |
 | `BASE_MODEL` | `mlx-community/Qwen2.5-7B-Instruct-4bit` | 微调/推理基座 |
@@ -111,6 +119,14 @@ eval/cases.jsonl     评测用例
 微调主要解决了：抽取任务按约定输出 JSON、运费计算不漏箱体尺寸、回答更精炼（全量评测 216s vs 基线 4934s）。
 剩余失分：未指定服务类型时偶尔自行填 `经济`、"53 度 vs 70%"数值比较出错、省份输出全称（评测过严）。
 加数据方向：不带服务类型的运费问法、数值比较类知识问答。
+
+## 部署到 ModelScope 创空间
+
+```bash
+uv run python scripts/convert_adapter_to_peft.py          # MLX adapter → PEFT 格式（adapters/logistics-lora-peft）
+uv run python scripts/publish_modelscope.py               # 上传 LoRA 到模型仓库 + 代码到创空间（需先 modelscope login）
+```
+创空间入口是根目录 `app.py`（Gradio），依赖在 `requirements.txt`；7B 模型需要在创空间设置里选择 GPU 档位（CPU 档跑不动）。
 
 ## 踩坑记录（mlx_lm 0.31）
 
