@@ -36,6 +36,7 @@
 ## 快速开始
 
 ```bash
+git clone https://github.com/zhatrix/logicLLM.git && cd logicLLM
 uv sync                           # 安装依赖
 make kb                           # 构建知识库索引（首次会下载 BAAI/bge-m3）
 
