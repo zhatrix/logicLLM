@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>物流通 · logicLLM</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --ink:#1a1d23; --muted:#6b7280; --accent:#0f6fff; --tool:#fff7e6; --border:#e5e7eb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --card:#181b22; --ink:#e6e8ee; --muted:#9aa3b2; --accent:#5b9dff; --tool:#2a2416; --border:#2a2f3a; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"PingFang SC","Noto Sans SC",sans-serif; background:var(--bg); color:var(--ink); display:flex; flex-direction:column; height:100vh; }
+  header { padding:12px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; background:var(--card); }
+  header h1 { font-size:16px; margin:0; }
+  header .status { font-size:12px; color:var(--muted); margin-left:auto; }
+  header label { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:4px; }
+  #log { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px; max-width:900px; width:100%; margin:0 auto; }
+  .msg { padding:12px 16px; border-radius:12px; max-width:85%; white-space:pre-wrap; line-height:1.6; font-size:14px; }
+  .user { align-self:flex-end; background:var(--accent); color:#fff; }
+  .bot { align-self:flex-start; background:var(--card); border:1px solid var(--border); }
+  .step { align-self:flex-start; background:var(--tool); border:1px dashed #d9a441; color:var(--ink); font-size:12px; font-family:ui-monospace,Menlo,monospace; max-width:85%; padding:8px 12px; border-radius:8px; white-space:pre-wrap; }
+  .step b { color:#b06d00; }
+  form { display:flex; gap:8px; padding:12px 20px; border-top:1px solid var(--border); background:var(--card); }
+  textarea { flex:1; resize:none; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font:inherit; background:var(--bg); color:var(--ink); height:48px; }
+  button { padding:0 20px; border:0; border-radius:8px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
+  button:disabled { opacity:.5; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; padding:8px 20px 0; max-width:900px; margin:0 auto; width:100%; }
+  .chip { font-size:12px; padding:4px 10px; border:1px solid var(--border); border-radius:999px; background:var(--card); cursor:pointer; color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚚 物流通 · logicLLM</h1>
+  <label><input type="checkbox" id="tools" checked> 工具调用</label>
+  <label><input type="checkbox" id="rag" checked> 知识库</label>
+  <label><input type="checkbox" id="showSteps" checked> 显示过程</label>
+  <span class="status" id="status">连接中…</span>
+</header>
+<div class="chips" id="chips"></div>
+<div id="log"></div>
+<form id="f">
+  <textarea id="q" placeholder="输入问题，Enter 发送，Shift+Enter 换行"></textarea>
+  <button id="send">发送</button>
+</form>
+<script>
+const log = document.getElementById('log'), q = document.getElementById('q'), f = document.getElementById('f'), send = document.getElementById('send');
+const examples = [
+  "帮我查一下运单 LL2026080258 到哪了",
+  "从深圳寄一个 2.2kg、40×30×30cm 的箱子到拉萨，保价1000元，运费多少？几天能到？",
+  "没保价的快递丢了能赔多少？",
+  "充电宝能寄吗？",
+  "从武汉出发送货到长沙、郑州、合肥、南昌，怎么排顺序最省路？",
+  "提取信息：收件人王小明 13812345678 浙江省杭州市西湖区文三路123号5楼，寄件人李雷 13900001111 北京市朝阳区建国路88号，物品：笔记本电脑 2.5kg",
+  "快递员没经过我同意把包裹放快递柜了，合规吗？",
+  "FOB 和 CIF 有什么区别？",
+];
+const chips = document.getElementById('chips');
+examples.forEach(e => { const c = document.createElement('span'); c.className='chip'; c.textContent=e; c.onclick=()=>{q.value=e; f.requestSubmit();}; chips.appendChild(c); });
+const history = [];
+fetch('/api/health').then(r=>r.json()).then(h=>{ document.getElementById('status').textContent = `${h.backend}:${h.model} · LLM ${h.llm_ok?'✓':'✗'} · 知识库 ${h.kb_ok?h.kb_chunks+'块':'✗'}`; });
+function add(cls, text){ const d=document.createElement('div'); d.className=cls; d.textContent=text; log.appendChild(d); log.scrollTop=log.scrollHeight; return d; }
+function step(label, obj){ if(!document.getElementById('showSteps').checked) return; const d=add('step',''); d.innerHTML='<b>'+label+'</b> '; d.appendChild(document.createTextNode(typeof obj==='string'?obj:JSON.stringify(obj,null,1).slice(0,1200))); }
+q.addEventListener('keydown', e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); f.requestSubmit(); } });
+f.onsubmit = async e => {
+  e.preventDefault(); const text=q.value.trim(); if(!text) return; q.value='';
+  add('msg user', text); history.push({role:'user', content:text}); send.disabled=true;
+  const bot = add('msg bot', ''); let answer='';
+  try {
+    const r = await fetch('/api/chat/stream', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({messages:history, use_tools:document.getElementById('tools').checked, use_rag:document.getElementById('rag').checked})});
+    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf='';
+    while(true){ const {value, done} = await reader.read(); if(done) break; buf += dec.decode(value,{stream:true});
+      let i; while((i=buf.indexOf('\n\n'))>=0){ const line=buf.slice(0,i).trim(); buf=buf.slice(i+2); if(!line.startsWith('data:')) continue;
+        const ev = JSON.parse(line.slice(5));
+        if(ev.type==='delta'){ answer+=ev.data; bot.textContent=answer; log.scrollTop=log.scrollHeight; }
+        else if(ev.type==='rag'){ log.insertBefore(bot, null); step('📚 知识库命中', ev.data.hits.map(h=>h.title+' ('+h.score+')').join('；')); log.appendChild(bot); }
+        else if(ev.type==='tool_call'){ step('🔧 调用 '+ev.data.name, ev.data.arguments); log.appendChild(bot); }
+        else if(ev.type==='tool_result'){ step('↩ 结果', ev.data); log.appendChild(bot); }
+        else if(ev.type==='done'){ if(!answer){ answer=ev.data; bot.textContent=answer; } }
+        else if(ev.type==='error'){ bot.textContent='⚠️ '+ev.data; }
+      } }
+  } catch(err){ bot.textContent='⚠️ '+err; }
+  history.push({role:'assistant', content:answer}); send.disabled=false; q.focus();
+};
+</script>
+</body>
+</html>

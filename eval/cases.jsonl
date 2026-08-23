@@ -1,0 +1,20 @@
+{"cat":"客服","q":"帮我查一下运单 LL2026080258","expect_tool":"query_waybill","keywords":["LL2026080258"]}
+{"cat":"客服","q":"LL2026080258 的物流轨迹","expect_tool":"track_waybill"}
+{"cat":"客服","q":"我的快递到哪了","expect_no_tool":true,"keywords":["运单号"]}
+{"cat":"客服","q":"从深圳寄 2.2kg 的包裹到拉萨，箱子 40×30×30cm，保价1000元，运费多少？","expect_tool":"calc_freight","keywords":["57"]}
+{"cat":"客服","q":"杭州到哈尔滨特快几天能到","expect_tool":"estimate_eta","keywords":["4"]}
+{"cat":"客服","q":"运单 LL2026080258 收到时已经破损了，我要投诉，收件人手机尾号 8196","expect_tool":"report_exception","keywords":["TK"]}
+{"cat":"知识","q":"没保价的快递丢了能赔多少？","keywords":["3倍","300"]}
+{"cat":"知识","q":"充电宝能寄吗？","keywords":["100Wh"]}
+{"cat":"知识","q":"快递员没经过我同意就放快递柜了，合规吗？","keywords":["同意"]}
+{"cat":"知识","q":"体积重怎么算？","keywords":["6000"]}
+{"cat":"知识","q":"FOB 和 CIF 的区别","keywords":["保险"]}
+{"cat":"知识","q":"轨迹多久不更新算丢件？","keywords":["7"]}
+{"cat":"知识","q":"53度白酒可以寄吗？","keywords":["5L"]}
+{"cat":"知识","q":"锂电池属于危险品第几类？","keywords":["9"]}
+{"cat":"抽取","q":"提取收件信息：收件人王小明 13812345678 浙江省杭州市西湖区文三路123号5楼","expect_json":{"name":"王小明","phone":"13812345678","province":"浙江","city":"杭州","district":"西湖区"}}
+{"cat":"抽取","q":"解析地址：新疆维吾尔自治区乌鲁木齐市天山区解放路1号 张三 18611112222","expect_json":{"name":"张三","phone":"18611112222","province":"新疆","city":"乌鲁木齐","district":"天山区"}}
+{"cat":"调度","q":"上海到乌鲁木齐干线怎么走，多少公里","expect_tool":"plan_route","keywords":["4000"]}
+{"cat":"调度","q":"从武汉出发给长沙、郑州、合肥、南昌送货，怎么排顺序最省路","expect_tool":"optimize_delivery_order","keywords":["武汉"]}
+{"cat":"调度","q":"一辆 9.6 米厢货能装多重","keywords":["10"]}
+{"cat":"调度","q":"司机连续驾驶不能超过几小时","keywords":["4"]}
