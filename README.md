@@ -44,7 +44,14 @@ make kb                           # 构建知识库索引（首次会下载 BAAI
 ollama pull qwen2.5:3b
 make serve-ollama                 # http://127.0.0.1:8010  (PORT=xxxx 可改)
 
-# 方式 B：微调后的 7B 模型
+# 方式 B-1：直接下载训练好的 LoRA（跳过训练，约 46MB）
+mkdir -p adapters/logistics-lora
+curl -L -o adapters/logistics-lora/adapters.safetensors https://github.com/zhatrix/logicLLM/releases/download/v0.1.0/adapters.safetensors
+curl -L -o adapters/logistics-lora/adapter_config.json  https://github.com/zhatrix/logicLLM/releases/download/v0.1.0/adapter_config.json
+make serve-mlx                    # 终端 1：mlx 推理服务 :8080（自动加载 adapter）
+LLM_BACKEND=mlx make serve        # 终端 2：应用服务 :8010
+
+# 方式 B-2：自己训练
 make data                         # 生成 SFT 数据（知识问答部分需要 LLM 后端在线作教师）
 make train ITERS=200              # LoRA 微调，M4 Max 约 1–2 小时（样本含工具定义+检索上下文，约 3k token/条）
 make serve-mlx                    # 终端 1：mlx 推理服务 :8080（基座 + adapter，不合并）
