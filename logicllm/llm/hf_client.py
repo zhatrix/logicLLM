@@ -67,11 +67,13 @@ class HFChatClient:
                                                            bnb_4bit_quant_type="nf4")
             kw["device_map"] = "auto"
         self._model = AutoModelForCausalLM.from_pretrained(self.base, **kw)
-        if "device_map" not in kw:
-            self._model.to(device)
+        # 先在 CPU 上挂 PEFT，再整体搬到设备：ZeroGPU 启动阶段只允许 .to("cuda") 这种搬运，
+        # 不允许 safetensors 直接往 CUDA 上加载（否则 "No CUDA GPUs are available"）
         if self.adapter:
             from peft import PeftModel
             self._model = PeftModel.from_pretrained(self._model, self.adapter)
+        if "device_map" not in kw:
+            self._model.to(device)
         self._model.eval()
         self.device = device
         self._lock = threading.Lock()
