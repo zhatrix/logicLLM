@@ -42,10 +42,39 @@ def _parse_tool_calls(raw) -> list[ToolCall]:
     return out
 
 
-def _fallback_text_tool_calls(text: str) -> tuple[str, list[ToolCall]]:
-    """兜底：后端没解析、模型直接输出了 <tool_call>…</tool_call> 文本或裸 JSON。"""
+XML_FN_RE = None
+
+
+def _parse_xml_tool_call(block: str) -> ToolCall | None:
+    """Qwen3/3.5 的 XML 参数风格：<function=name><parameter=key>value</parameter>…</function>"""
     import re
+    m = re.search(r"<function=([\w-]+)>(.*?)(?:</function>|$)", block, re.S)
+    if not m:
+        return None
+    args = {}
+    for pm in re.finditer(r"<parameter=([\w-]+)>\s*(.*?)\s*(?:</parameter>|$)", m.group(2), re.S):
+        v = pm.group(2)
+        try:
+            args[pm.group(1)] = json.loads(v)
+        except json.JSONDecodeError:
+            args[pm.group(1)] = v
+    return ToolCall(m.group(1), args)
+
+
+def _fallback_text_tool_calls(text: str) -> tuple[str, list[ToolCall]]:
+    """兜底：后端没解析、模型直接输出了 <tool_call>…</tool_call> 文本（JSON 或 XML 参数风格）或裸 JSON。"""
+    import re
+    # 去掉思考段
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
     calls = []
+    for m in re.finditer(r"<tool_call>\s*(.*?)\s*(?:</tool_call>|$)", text, re.S):
+        blk = m.group(1)
+        if blk.lstrip().startswith("<function"):
+            c = _parse_xml_tool_call(blk)
+            if c:
+                calls.append(c)
+    if calls:
+        return re.sub(r"<tool_call>.*?(?:</tool_call>|$)", "", text, flags=re.S).strip(), calls
     for m in re.finditer(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", text, re.S):
         try:
             d = json.loads(m.group(1))
@@ -84,6 +113,8 @@ class ChatClient:
             p["tools"] = tools
         if config.LLM_ADAPTER:
             p["adapters"] = config.LLM_ADAPTER
+        if config.LLM_BACKEND == "mlx" and not config.LLM_THINKING:
+            p["chat_template_kwargs"] = {"enable_thinking": False}
         return p
 
     async def chat(self, messages: list[dict], tools: list[dict] | None = None,

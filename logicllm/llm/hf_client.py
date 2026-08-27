@@ -81,7 +81,10 @@ class HFChatClient:
     # ---- 内部 ----
     def _inputs(self, messages, tools):
         import torch
-        text = self.tok.apply_chat_template(messages, tools=tools, add_generation_prompt=True, tokenize=False)
+        kw = {}
+        if "enable_thinking" in getattr(self.tok, "chat_template", "") or "enable_thinking" in str(getattr(self.tok, "chat_template", "")):
+            kw["enable_thinking"] = config.LLM_THINKING
+        text = self.tok.apply_chat_template(messages, tools=tools, add_generation_prompt=True, tokenize=False, **kw)
         enc = self.tok(text, return_tensors="pt")
         return {k: v.to(self._model.device) for k, v in enc.items()}
 

@@ -142,6 +142,9 @@ async def gen_tool(n: int) -> list[dict]:
             w = round(w * rnd.uniform(0.6, 2.5), 1)
             dims = rnd.choice([None, (rnd.randint(20, 60), rnd.randint(15, 45), rnd.randint(10, 40))])
             svc = rnd.choice(["标准快递", "特快", "经济"])
+            svc_in_text = rnd.random() > 0.3
+            if not svc_in_text:
+                svc = "标准快递"
             dv = rnd.choice([0, 0, 500, 1000, 3000])
             args = {"origin": o, "destination": d, "weight_kg": w, "service": svc}
             utxt = f"从{o}寄{item}到{d}，{w}kg"
@@ -151,10 +154,10 @@ async def gen_tool(n: int) -> list[dict]:
             if dv:
                 args["declared_value"] = dv
                 utxt += f"，保价{dv}元"
-            utxt += f"，{svc}" + rnd.choice(["多少钱？", "运费怎么算？", "要花多少运费"])
+            utxt += (f"，{svc}" if svc_in_text else "") + rnd.choice(["多少钱？", "运费怎么算？", "要花多少运费"])
             call = {"name": "calc_freight", "arguments": args}
             res = await call_tool(call["name"], call["arguments"])
-            a = (f"{o} → {d}（{res['zone']}），计费重量 {res['billable_weight_kg']}kg"
+            a = ("" if svc_in_text else "您未指明服务类型，按默认的标准快递计算（如需特快/经济请告诉我）。\n") + (f"{o} → {d}（{res['zone']}），计费重量 {res['billable_weight_kg']}kg"
                  + (f"（体积重 {res['volume_weight_kg']}kg 大于实重）" if res["volume_weight_kg"] > w else "")
                  + f"：\n- {res['breakdown']}\n- **合计 {res['total_fee']} 元**")
             out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": utxt}, tc(call),
