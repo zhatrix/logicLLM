@@ -141,6 +141,8 @@ uv run python scripts/publish_modelscope.py               # 上传 LoRA 到模�
 2. `mlx_lm fuse` 直接合并进 4bit 量化基座后 LoRA **完全失效**；要合并请用 `make fuse`（带 `--de-quantize`，输出 fp16）。
 3. `--mask-prompt` 只对**最后一条** assistant 消息计算 loss，多轮工具轨迹中间的 `tool_call` 不会被训练；`gen_sft.py` 会把每条轨迹额外拆出"到该次调用为止"的前缀样本。
 4. 训练样本必须与线上 prompt 一致（同一份 `tools`、同样注入检索上下文），否则微调效果被分布偏移抵消。
+5. 注意 epoch 覆盖率：`iters × batch_size` 小于样本数时是"欠采样训练"——模式类能力（工具/格式）靠同类样本冗余仍能学会，但**只出现一两次的孤立知识点大概率没被抽中**。孤立事实要么加变体提高覆盖，要么把步数提到 ≥1 epoch。
+6. Qwen3.5/3.8（qwen3_5 架构）是混合线性注意力（GatedDeltaNet），mlx_lm 训练时逐 token 状态不释放，9B 在 seq 3072 就 OOM（128GB 机）——该系只可推理，训练用 qwen3/qwen2.5 标准架构。
 
 ## 踩坑记录（HF Spaces ZeroGPU）
 
