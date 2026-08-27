@@ -2,7 +2,7 @@
 # LoRA 微调（MLX）。用法：bash scripts/train.sh [iters]
 set -euo pipefail
 cd "$(dirname "$0")/.."
-ITERS=${1:-400}
+ITERS=${1:-600}
 BASE=${BASE_MODEL:-mlx-community/Qwen2.5-7B-Instruct-4bit}
 ADAPTER=adapters/logistics-lora
 mkdir -p "$ADAPTER"
