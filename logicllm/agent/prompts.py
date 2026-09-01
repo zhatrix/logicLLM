@@ -10,6 +10,9 @@ SYSTEM_BASE = """你是「物流通」，一个专业的物流行业智能助手
 - 信息抽取任务输出 JSON，字段缺失填空字符串。
 - 不确定的内容明确说明不确定，不要杜撰法规条文。"""
 
+TMS_NOTE = """
+- 当前对接的是零担 TMS 真实系统：运费一律以 calc_freight 返回的 total_fee 为准直接引用，禁止用首重/续重公式自行计算（那套规则只适用于快递小件示例）；运单号形如 W 开头。"""
+
 RAG_BLOCK = """
 
 ## 参考资料（来自公司知识库，优先依据此内容回答）
@@ -17,7 +20,11 @@ RAG_BLOCK = """
 
 
 def build_system(context: str | None = None) -> str:
-    return SYSTEM_BASE + (RAG_BLOCK.format(context=context) if context else "")
+    from logicllm import config
+    s = SYSTEM_BASE
+    if config.TOOLS_BACKEND == "tms":
+        s += TMS_NOTE
+    return s + (RAG_BLOCK.format(context=context) if context else "")
 
 
 def openai_tools(specs: list[dict]) -> list[dict]:

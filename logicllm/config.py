@@ -56,6 +56,8 @@ MODEL_SOURCE = os.getenv("MODEL_SOURCE", "modelscope")  # modelscope | hf：非�
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "4"))
 RAG_MIN_SCORE = float(os.getenv("RAG_MIN_SCORE", "0.35"))
 MAX_TOOL_ROUNDS = int(os.getenv("MAX_TOOL_ROUNDS", "5"))
+# 工具后端：mock（内置 SQLite 演示库）或 tms（对接本地零担通 TMS 真实接口）
+TOOLS_BACKEND = os.getenv("TOOLS_BACKEND", "mock")
 LLM_THINKING = os.getenv("LLM_THINKING", "0") == "1"  # Qwen3 系混合推理模型的思考模式，业务场景默认关
 
 SERVER_HOST = os.getenv("SERVER_HOST", "127.0.0.1")

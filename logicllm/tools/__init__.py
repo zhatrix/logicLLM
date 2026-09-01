@@ -48,3 +48,12 @@ def all_specs() -> list[dict]:
 
 # 导入即注册
 from logicllm.tools import waybill, pricing, eta, route, address  # noqa: E402,F401
+
+# TOOLS_BACKEND=tms 时用真实 TMS 接口覆盖同名工具（query/track/search/report/calc_freight），
+# 并移除仅适用于演示库的工具。
+from logicllm import config as _config  # noqa: E402
+
+if _config.TOOLS_BACKEND == "tms":
+    from logicllm.tools import tms  # noqa: E402,F401
+    REGISTRY.pop("create_waybill", None)
+    REGISTRY.pop("estimate_eta", None)  # 演示时效表按城市对，不适用网点体系

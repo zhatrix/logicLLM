@@ -126,6 +126,17 @@ eval/cases.jsonl     评测用例
 微调解决了：抽取按约定输出 JSON、运费不漏尺寸、未指明服务类型时默认标准快递并说明、"53 度 vs 70%"类数值比较。
 剩余：省份偶尔输出全称（评测严格）；训练分布外的数值套档仍可能出错（如 1600km 套错档），可继续加变体样本。
 
+## 对接真实 TMS（零担通）
+
+```bash
+uv run python scripts/seed_tms_demo.py         # 可选：往 Dev Tenant 种演示数据（网点/客户/路由/运单）
+TOOLS_BACKEND=tms LLM_BACKEND=mlx make serve   # 运单查询/轨迹/异常/报价 切到真实接口
+```
+`logicllm/tools/tms.py` 覆盖同名工具（query/track/search/report_exception/calc_freight，另加 waybill_status_counts）；
+鉴权走 手机号+密码 → 选租户 → Bearer（TMS_* 环境变量配置）。要点：写接口需 `X-Idempotency-Key` 头；列表响应为
+`{data, pagination}`；calc_freight 用 `/pricing/trial-quote` 真实报价引擎，结果映射为模型熟悉的 `total_fee/breakdown` 字段，
+且 TMS 模式下系统提示会声明"运费以报价引擎为准"（避免模型套用知识库里的快递首重续重公式）。
+
 ## 部署到 ModelScope 创空间
 
 ```bash
