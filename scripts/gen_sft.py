@@ -22,7 +22,7 @@ from logicllm.agent.prompts import build_system, openai_tools
 from logicllm.llm.client import ChatClient
 from logicllm.rag.kb import split_markdown
 from logicllm.tools import all_specs, call_tool
-from logicllm.tools.geo import CITY_PROVINCE
+from logicllm.tools.geo import CITY_PROVINCE, CITY_DISTRICTS, province_full
 from logicllm.tools.waybill import init_db, _conn
 
 OUT = config.DATA_DIR / "sft"
@@ -165,10 +165,13 @@ async def gen_tool(n: int) -> list[dict]:
         elif kind == "eta":
             o, d = rnd.sample(list(CITY_PROVINCE), 2)
             svc = rnd.choice(["标准快递", "特快", "经济"])
-            u = rnd.choice([f"{o}到{d}{svc}几天能到？", f"今天从{o}发{svc}到{d}，什么时候到", f"{o}寄{d}要多久"])
+            svc_in_text = rnd.random() > 0.35
+            if not svc_in_text:
+                svc = "标准快递"  # 用户未指明时不得臆测，按默认标准快递并说明
+            u = rnd.choice([f"{o}到{d}{svc}几天能到？", f"今天从{o}发{svc}到{d}，什么时候到"]) if svc_in_text else rnd.choice([f"{o}寄{d}要多久", f"{o}到{d}几天能到"])
             call = {"name": "estimate_eta", "arguments": {"origin": o, "destination": d, "service": svc}}
             res = await call_tool(call["name"], call["arguments"])
-            a = f"{o} → {d} 约 {res['distance_km']}km，{svc}预计 **{res['est_days']} 天**送达（约 {res['est_delivery_date']}）。" + (f"{res['note']}。" if res["note"] else "") + "实际以揽收后轨迹为准，恶劣天气可能延误。"
+            a = ("" if svc_in_text else "按默认的标准快递估算（特快可再快 1 天）：") + f"{o} → {d} 约 {res['distance_km']}km，{svc}预计 **{res['est_days']} 天**送达（约 {res['est_delivery_date']}）。" + (f"{res['note']}。" if res["note"] else "") + "实际以揽收后轨迹为准，恶劣天气可能延误。"
             out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u}, tc(call),
                                              tr(res), {"role": "assistant", "content": a}]))
         elif kind == "search":
@@ -222,13 +225,13 @@ def gen_extract(n: int) -> list[dict]:
     from logicllm.tools.address import parse_address
     out = []
     for _ in range(n):
-        city = rnd.choice(list(CITY_PROVINCE))
+        city = rnd.choice(list(CITY_DISTRICTS))
         prov = CITY_PROVINCE[city]
         name = rnd.choice(NAMES)
         phone = f"1{rnd.choice('3589')}{rnd.randint(100000000, 999999999)}"
-        dist = rnd.choice(["高新区", "朝阳区", "西湖区", "南山区", "武侯区", "江汉区", "历下区", "鼓楼区"])
+        dist = rnd.choice(CITY_DISTRICTS[city])
         detail = f"{rnd.choice(STREETS)}{rnd.randint(1, 500)}号{rnd.choice(['', '3栋2单元501', 'A座1201', '科技园T3栋'])}"
-        provtxt = "" if prov == city else rnd.choice([f"{prov}省", prov, ""])
+        provtxt = "" if prov == city else rnd.choice([province_full(prov), prov, ""])
         citytxt = f"{city}市" if rnd.random() < 0.7 else city
         item, w = rnd.choice(ITEMS)
         layout = rnd.choice([
@@ -281,12 +284,57 @@ async def gen_route(n: int) -> list[dict]:
     return out
 
 
+# ---------- 5. 失败与边界轨迹 ----------
+async def gen_failures(n: int) -> list[dict]:
+    init_db()
+    out = []
+    unknown_cities = ["洛阳", "三亚", "桂林", "唐山", "襄阳", "赣州", "遵义", "绵阳"]
+    for _ in range(n):
+        kind = rnd.choice(["bad_no", "bad_no_track", "bad_city_eta", "bad_city_freight", "bad_city_route", "no_result_phone"])
+        if kind in ("bad_no", "bad_no_track"):
+            no = f"LL{rnd.randint(2027000000, 2029999999)}{rnd.randint(10, 99)}"
+            tool_name = "query_waybill" if kind == "bad_no" else "track_waybill"
+            u = rnd.choice([f"帮我查下 {no}", f"{no} 到哪了", f"查一下运单 {no} 的物流"])
+            call = {"name": tool_name, "arguments": {"waybill_no": no}}
+            res = await call_tool(call["name"], call["arguments"])
+            a = f"抱歉，系统里没有找到运单 {no}。请核对运单号是否正确（本系统运单号为 LL 开头加 10 位数字），也可以告诉我寄/收件人手机号，我用手机号帮您查。"
+        elif kind == "bad_city_eta":
+            c1 = rnd.choice(unknown_cities); c2 = rnd.choice(list(CITY_PROVINCE))
+            u = f"{c1}到{c2}几天能到？"
+            call = {"name": "estimate_eta", "arguments": {"origin": c1, "destination": c2, "service": "标准快递"}}
+            res = await call_tool(call["name"], call["arguments"])
+            near = rnd.sample(list(CITY_PROVINCE), 2)
+            a = f"抱歉，{c1} 暂不在系统收录的城市范围内，无法直接估算时效。您可以确认一下城市名，或者选择邻近的已开通城市（如 {near[0]}、{near[1]}）再帮您估算。"
+        elif kind == "bad_city_freight":
+            c1 = rnd.choice(list(CITY_PROVINCE)); c2 = rnd.choice(unknown_cities)
+            item, w = rnd.choice(ITEMS)
+            u = f"从{c1}寄{item}到{c2}，{w}kg 多少钱？"
+            call = {"name": "calc_freight", "arguments": {"origin": c1, "destination": c2, "weight_kg": w}}
+            res = await call_tool(call["name"], call["arguments"])
+            a = f"抱歉，{c2} 暂不在已开通的计费城市范围内，算不了这条线路的运费。请确认城市名是否有误，或告诉我具体想寄到哪个已开通城市。"
+        elif kind == "bad_city_route":
+            c1 = rnd.choice(unknown_cities); c2 = rnd.choice(list(CITY_PROVINCE))
+            u = f"{c1}到{c2}的干线怎么走？"
+            call = {"name": "plan_route", "arguments": {"origin": c1, "destination": c2}}
+            res = await call_tool(call["name"], call["arguments"])
+            a = f"抱歉，路网数据里没有收录 {c1}，无法规划这条干线。如果您指的是其他城市请更正一下；也可以从收录的邻近枢纽城市出发规划。"
+        else:  # no_result_phone
+            ph = f"13{rnd.randint(100000000, 999999999)}"
+            u = rnd.choice([f"手机号 {ph} 名下有哪些运单？", f"用 {ph} 帮我查下快递"])
+            call = {"name": "search_waybills", "arguments": {"phone": ph}}
+            res = await call_tool(call["name"], call["arguments"])
+            a = f"手机号 {ph} 名下没有查到运单。请确认号码是否为下单时预留的手机号，或直接提供运单号（LL 开头 12 位）我来查询。"
+        out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u}, tc(call), tr(res), {"role": "assistant", "content": a}]))
+    return out
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-kb", type=int, default=200)
     ap.add_argument("--n-tool", type=int, default=300)
     ap.add_argument("--n-extract", type=int, default=150)
     ap.add_argument("--n-route", type=int, default=100)
+    ap.add_argument("--n-fail", type=int, default=60)
     ap.add_argument("--valid-ratio", type=float, default=0.08)
     ap.add_argument("--skip-kb", action="store_true", help="不用教师模型生成知识问答")
     ap.add_argument("--kb-cache", default=str(config.DATA_DIR / "seed" / "teacher_kb_qa.json"), help="已生成的知识问答缓存，存在则直接复用")
@@ -297,6 +345,7 @@ async def main():
     print("生成工具调用样本…"); data += await gen_tool(a.n_tool)
     print("生成抽取样本…"); data += gen_extract(a.n_extract)
     print("生成路径样本…"); data += await gen_route(a.n_route)
+    print("生成失败/边界样本…"); data += await gen_failures(a.n_fail)
     cache = Path(a.kb_cache)
     if not a.skip_kb and a.n_kb > 0 and cache.exists():
         pairs = json.load(open(cache, encoding="utf-8"))
@@ -320,26 +369,45 @@ async def main():
                 d = json.loads(l)
                 data.append(sample(SYSTEM_PLAIN, d["messages"][1:]))  # 手写种子也注入检索上下文
 
-    # mlx_lm --mask-prompt 只对最后一条 assistant 消息计算 loss，
-    # 所以把每个工具调用轨迹额外拆出"到该次工具调用为止"的前缀样本，让模型学会发出调用。
-    expanded = []
+    # 会话级去重（避免同一轨迹既进训练又进验证）
+    seen, uniq = set(), []
     for d in data:
-        msgs = d["messages"]
-        for i, m in enumerate(msgs):
-            if m["role"] == "assistant" and m.get("tool_calls") and i < len(msgs) - 1:
-                expanded.append({**d, "messages": msgs[:i + 1]})
-    data += expanded
-    print(f"拆分出工具调用前缀样本 {len(expanded)} 条")
+        key = json.dumps(d["messages"], ensure_ascii=False, sort_keys=True)
+        if key not in seen:
+            seen.add(key)
+            uniq.append(d)
+    print(f"会话去重：{len(data)} → {len(uniq)}")
 
-    rnd.shuffle(data)
-    nv = max(10, int(len(data) * a.valid_ratio))
+    # 按用户问题分组后切分训练/验证，再在各自分区内展开工具调用前缀
+    # （mlx_lm --mask-prompt 只训最后一条 assistant，前缀样本让模型学会发出调用；
+    #  同一问题的会话/前缀必须落在同一分区，否则验证损失虚低）
+    groups: dict = {}
+    for d in uniq:
+        groups.setdefault(d["messages"][1]["content"], []).append(d)
+    gkeys = list(groups)
+    rnd.shuffle(gkeys)
+    valid_sessions, train_sessions, nv = [], [], max(10, int(len(uniq) * a.valid_ratio))
+    for k in gkeys:
+        (valid_sessions if len(valid_sessions) < nv else train_sessions).extend(groups[k])
+
+    def expand(sessions):
+        out_rows = list(sessions)
+        for d in sessions:
+            msgs = d["messages"]
+            for i, m in enumerate(msgs):
+                if m["role"] == "assistant" and m.get("tool_calls") and i < len(msgs) - 1:
+                    out_rows.append({**d, "messages": msgs[:i + 1]})
+        return out_rows
+
+    train_rows, valid_rows = expand(train_sessions), expand(valid_sessions)
+    rnd.shuffle(train_rows)
     with open(OUT / "valid.jsonl", "w", encoding="utf-8") as f:
-        for x in data[:nv]:
+        for x in valid_rows:
             f.write(json.dumps(x, ensure_ascii=False) + "\n")
     with open(OUT / "train.jsonl", "w", encoding="utf-8") as f:
-        for x in data[nv:]:
+        for x in train_rows:
             f.write(json.dumps(x, ensure_ascii=False) + "\n")
-    print(f"完成：train {len(data) - nv} 条，valid {nv} 条 → {OUT}")
+    print(f"完成：train {len(train_rows)} 条（会话 {len(train_sessions)}），valid {len(valid_rows)} 条（会话 {len(valid_sessions)}）→ {OUT}")
 
 
 if __name__ == "__main__":

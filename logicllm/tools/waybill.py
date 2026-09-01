@@ -22,6 +22,7 @@ def _conn():
 
 
 def init_db(seed: int = 42, n: int = 60):
+    from logicllm.tools.pricing import calc_freight as _calc
     config.DATA_DIR.mkdir(exist_ok=True)
     c = _conn()
     c.executescript("""
@@ -42,17 +43,22 @@ def init_db(seed: int = 42, n: int = 60):
     names = ["张伟", "王芳", "李娜", "刘强", "陈静", "杨洋", "赵磊", "黄敏", "周杰", "吴丹"]
     cities = list(CITY_PROVINCE)
     for i in range(n):
+        # 注意保持随机数取用顺序与最初版本一致，确保演示运单号（如 LL2026080258）稳定
         no = f"LL{20260800 + i:08d}{rnd.randint(10, 99)}"
         o, d = rnd.sample(cities, 2)
         stage = rnd.randint(0, 4)
         created = datetime(2026, 8, rnd.randint(10, 21), rnd.randint(8, 20))
         w = round(rnd.uniform(0.3, 25), 1)
+        sender, sender_phone = rnd.choice(names), f"13{rnd.randint(100000000, 999999999)}"
+        receiver, receiver_phone = rnd.choice(names), f"15{rnd.randint(100000000, 999999999)}"
+        addr = f"{d}市某某区某某路{rnd.randint(1, 500)}号"
+        svc = rnd.choice(["标准快递", "特快", "经济"])
+        dv = rnd.choice([0, 0, 500, 2000])
+        exc = "" if rnd.random() > 0.12 else rnd.choice(["地址不详", "电话无人接听", "包裹破损"])
+        fee = _calc(o, d, w, service=svc, declared_value=dv)["total_fee"]  # 统一计费引擎，与 calc_freight 一致
         c.execute("INSERT INTO waybill VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (
-            no, rnd.choice(names), f"13{rnd.randint(100000000, 999999999)}", o,
-            rnd.choice(names), f"15{rnd.randint(100000000, 999999999)}", d,
-            f"{d}市某某区某某路{rnd.randint(1, 500)}号", w, rnd.choice(["标准快递", "特快", "经济"]),
-            round(10 + w * 4, 1), STATUS_FLOW[stage], created.isoformat(timespec="minutes"),
-            rnd.choice([0, 0, 500, 2000]), "" if rnd.random() > 0.12 else rnd.choice(["地址不详", "电话无人接听", "包裹破损"]),
+            no, sender, sender_phone, o, receiver, receiver_phone, d, addr, w, svc,
+            fee, STATUS_FLOW[stage], created.isoformat(timespec="minutes"), dv, exc,
         ))
         ts = created
         locs = [o, o + "转运中心", "干线运输", d + "转运中心", d]

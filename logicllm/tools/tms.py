@@ -162,10 +162,13 @@ def track_waybill(waybill_no: str):
     "按关键词（客户名/电话/运单号片段）或状态搜索运单列表。",
     {"type": "object", "properties": {
         "keyword": {"type": "string", "description": "关键词，可选"},
+        "phone": {"type": "string", "description": "寄/收件人手机号，可选"},
+        "name": {"type": "string", "description": "寄/收件人或客户姓名，可选"},
         "status": {"type": "string", "enum": list(STATUS_ZH.values()), "description": "运单状态，可选"},
     }},
 )
-def search_waybills(keyword: str = "", status: str = ""):
+def search_waybills(keyword: str = "", status: str = "", phone: str = "", name: str = ""):
+    keyword = keyword or phone or name  # 兼容微调数据里的 phone/name 参数习惯
     params: dict = {"page_size": 10}
     if keyword:
         params["keyword"] = keyword

@@ -47,12 +47,16 @@ def calc_freight(origin: str, destination: str, weight_kg: float, length_cm: flo
     base = FIRST_KG[zone] + max(0, bill_w - 1) * ADD_KG[zone]
     base *= SERVICE_MULT[service]
     remote = 10.0 if CITY_PROVINCE.get(destination) in REMOTE_PROVINCES else 0.0
+    oversize = 30.0 if (weight_kg > 50 or max(length_cm, width_cm, height_cm) > 150) else 0.0
     insurance = max(1.0, declared_value * 0.005) if declared_value else 0.0
-    total = round(base + remote + insurance, 2)
+    total = round(base + remote + oversize + insurance, 2)
     return {
         "billable_weight_kg": bill_w, "volume_weight_kg": round(vol_w, 2), "zone": zone,
         "service": service, "base_fee": round(base, 2), "remote_surcharge": remote,
+        "oversize_surcharge": oversize,
         "insurance_fee": round(insurance, 2), "total_fee": total,
         "breakdown": f"首重{FIRST_KG[zone]}元 + 续重{max(0, bill_w-1)}kg×{ADD_KG[zone]}元，×{SERVICE_MULT[service]}({service})"
-                     + (f" + 偏远附加{remote}元" if remote else "") + (f" + 保价费{insurance:.2f}元" if insurance else ""),
+                     + (f" + 偏远附加{remote}元" if remote else "")
+                     + (f" + 超长超重操作费{oversize}元" if oversize else "")
+                     + (f" + 保价费{insurance:.2f}元" if insurance else ""),
     }
