@@ -18,3 +18,38 @@
 {"cat":"调度","q":"从武汉出发给长沙、郑州、合肥、南昌送货，怎么排顺序最省路","expect_tool":"optimize_delivery_order","keywords":["武汉"]}
 {"cat":"调度","q":"一辆 9.6 米厢货能装多重","keywords":["10"]}
 {"cat":"调度","q":"司机连续驾驶不能超过几小时","keywords":["4"]}
+{"cat":"客服","q":"我想查下单号LL2026080091","expect_tool":"query_waybill","keywords":["LL2026080091"]}
+{"cat":"客服","q":"帮我查 LL2028999999","expect_tool":"query_waybill","keywords_any":["未找到","没有找到","没查到","查不到"]}
+{"cat":"客服","q":"我手机号 13826600539，名下有什么快递","expect_tool":"search_waybills","keywords":["LL2026080091"]}
+{"cat":"客服","q":"用 13000000000 查一下我的运单","expect_tool":"search_waybills","keywords_any":["没有","未找到","没查到","0 个"]}
+{"cat":"客服","q":"从上海寄5公斤东西到北京要多少钱","expect_tool":"calc_freight","keywords":["36","标准快递"],"forbid":["特快","经济型"]}
+{"cat":"客服","q":"从杭州寄一台60公斤的机器到南京，运费多少","expect_tool":"calc_freight","keywords":["276"]}
+{"cat":"客服","q":"深圳寄10公斤到成都，多少钱几天能到","expect_tools":["calc_freight","estimate_eta"],"keywords":["66","4 天"]}
+{"cat":"客服","turns":["我的快递收到的时候摔坏了，怎么办","运单号是 LL2026080258，帮我登记投诉"],"expect_tool":"report_exception","keywords":["TK"]}
+{"cat":"客服","turns":["帮我查个运单","LL2026080315"],"expect_tool":"query_waybill","keywords":["LL2026080315"]}
+{"cat":"客服","turns":["从北京寄2公斤文件到上海多少钱？","改成特快呢？"],"expect_tool":"calc_freight","keywords":["28.8"]}
+{"cat":"客服","q":"包裹还没派送，我想改一下同城的收货地址，收费吗","expect_no_tool":true,"keywords":["免费"]}
+{"cat":"客服","q":"到付件收件人不肯付运费怎么办","keywords":["寄件人"]}
+{"cat":"知识","q":"1600 公里大概几天到","keywords":["4 天"],"forbid":["5 天","3 天"]}
+{"cat":"知识","q":"公路里程正好 800 公里，算邻近还是跨区","keywords":["邻近"]}
+{"cat":"知识","q":"2500 公里整，标准快递几天","keywords":["4 天"]}
+{"cat":"知识","q":"正好 70 度的酒能寄吗","keywords":["5L"],"forbid":["禁寄，"]}
+{"cat":"知识","q":"100Wh 的充电宝能寄吗","keywords":["陆运"]}
+{"cat":"知识","q":"101Wh 的充电宝呢","keywords_any":["不能","不可以","超过","超出"]}
+{"cat":"知识","q":"价值 999 元的东西必须保价吗","keywords":["1000"]}
+{"cat":"知识","q":"投诉乱收费多久能解决","keywords":["48"]}
+{"cat":"知识","q":"虚假签收的投诉多久响应","keywords":["1 小时"]}
+{"cat":"知识","q":"40 高柜能装多少方","keywords":["76"]}
+{"cat":"知识","q":"跨境电商零售进口单次免税额度是多少","keywords":["5000"]}
+{"cat":"知识","q":"木箱出口有什么要求","keywords_any":["熏蒸","IPPC"]}
+{"cat":"知识","q":"仓库库容利用率多少比较健康","keywords_any":["75","85"]}
+{"cat":"知识","q":"拣货准确率的目标是多少","keywords":["99.9"]}
+{"cat":"知识","q":"冷冻件运输温度要求","keywords_any":["-18","−18","18"]}
+{"cat":"知识","q":"从上海寄东西到纽约多少钱","keywords_any":["国际","未收录","无法","不支持","不在"],"forbid":["总运费","合计"]}
+{"cat":"抽取","q":"麻烦发这里：广西壮族自治区南宁市青秀区民族大道100号 李雷 13900001111","expect_json":{"name":"李雷","phone":"13900001111","province":"广西","city":"南宁","district":"青秀区"}}
+{"cat":"抽取","q":"13512345678，重庆市渝中区解放碑步行街8号，收件人吴丹","expect_json":{"name":"吴丹","phone":"13512345678","city":"重庆","district":"渝中区"}}
+{"cat":"抽取","q":"内蒙古自治区呼和浩特市新城区成吉思汗大街1号 马超 15811112222","expect_json":{"name":"马超","phone":"15811112222","province":"内蒙古","city":"呼和浩特","district":"新城区"}}
+{"cat":"调度","q":"从成都出发给重庆、贵阳、昆明送货，怎么排最顺","expect_tool":"optimize_delivery_order","keywords":["成都"]}
+{"cat":"调度","q":"杭州到西安的干线要经过哪些城市","expect_tool":"plan_route","keywords":["郑州"]}
+{"cat":"调度","q":"从洛阳到北京的干线怎么走","expect_tool":"plan_route","keywords_any":["洛阳","未收录","不在","没有收录"]}
+{"cat":"调度","q":"13.5 米半挂能拉多少吨","keywords_any":["25","30"]}
