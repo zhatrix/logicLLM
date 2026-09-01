@@ -8,7 +8,7 @@ from modelscope.hub.api import HubApi
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--owner", default="zh4trix")
-ap.add_argument("--model", default="logistics-qwen-lora")
+ap.add_argument("--model", default="logistics-qwen3-lora")
 ap.add_argument("--studio", default="logistics-llm")
 ap.add_argument("--skip-model", action="store_true")
 ap.add_argument("--skip-studio", action="store_true")
@@ -18,8 +18,8 @@ api = HubApi()
 if not a.skip_model:
     repo = f"{a.owner}/{a.model}"
     api.create_repo(repo, repo_type="model", visibility="public", license="apache-2.0",
-                    chinese_name="物流通 LoRA（Qwen2.5-7B）", exist_ok=True)
-    api.upload_folder(repo_id=repo, repo_type="model", folder_path="adapters/logistics-lora-peft",
+                    chinese_name="物流通 LoRA v2（Qwen3-14B）", exist_ok=True)
+    api.upload_folder(repo_id=repo, repo_type="model", folder_path="adapters/logistics-q3-14b-peft",
                       commit_message="LoRA adapter (PEFT)")
     print("模型仓库:", f"https://www.modelscope.cn/models/{repo}")
 

@@ -47,9 +47,9 @@ def _default_embed_device() -> str:
 EMBED_DEVICE = os.getenv("EMBED_DEVICE") or _default_embed_device()
 
 # hf 后端
-HF_BASE_MODEL = os.getenv("HF_BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
-_PEFT = ROOT / "adapters" / "logistics-lora-peft"
-HF_ADAPTER = os.getenv("HF_ADAPTER", str(_PEFT) if (_PEFT / "adapter_model.safetensors").exists() else "zh4trix/logistics-qwen-lora")
+HF_BASE_MODEL = os.getenv("HF_BASE_MODEL", "Qwen/Qwen3-14B")
+_PEFT = ROOT / "adapters" / "logistics-q3-14b-peft"
+HF_ADAPTER = os.getenv("HF_ADAPTER", str(_PEFT) if (_PEFT / "adapter_model.safetensors").exists() else "zh4trix/logistics-qwen3-lora")
 HF_4BIT = os.getenv("HF_4BIT", "1") == "1"  # 仅 CUDA 生效（bitsandbytes）
 MODEL_SOURCE = os.getenv("MODEL_SOURCE", "modelscope")  # modelscope | hf：非本地路径的模型从哪里下载
 
