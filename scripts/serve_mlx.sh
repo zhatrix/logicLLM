@@ -6,7 +6,7 @@
 #   所以应用侧在每个请求里显式带 "adapters": <绝对路径>（见 logicllm/config.py LLM_ADAPTER）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
-BASE=${BASE_MODEL:-mlx-community/Qwen2.5-7B-Instruct-4bit}
+BASE=${BASE_MODEL:-mlx-community/Qwen3-14B-4bit}
 ADAPTER="$(pwd)/adapters/logistics-lora"
 if [ -f "$ADAPTER/adapters.safetensors" ]; then
   echo "基座 $BASE + LoRA $ADAPTER"

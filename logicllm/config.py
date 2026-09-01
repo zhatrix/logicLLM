@@ -21,7 +21,7 @@ LLM_MODEL = os.getenv(
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.1"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1024"))
 
-BASE_MODEL = os.getenv("BASE_MODEL", "mlx-community/Qwen2.5-7B-Instruct-4bit")
+BASE_MODEL = os.getenv("BASE_MODEL", "mlx-community/Qwen3-14B-4bit")
 # mlx 后端：请求里显式带 adapters 路径（mlx_lm server 用 default_model 时不会应用 --adapter-path；
 # 且 fuse 进 4bit 基座会让 LoRA 失效，所以不合并、直接挂 adapter）
 _ADAPTER = ROOT / "adapters" / "logistics-lora"

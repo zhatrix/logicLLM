@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ITERS=${1:-600}
-BASE=${BASE_MODEL:-mlx-community/Qwen2.5-7B-Instruct-4bit}
+BASE=${BASE_MODEL:-mlx-community/Qwen3-14B-4bit}
 ADAPTER=adapters/logistics-lora
 mkdir -p "$ADAPTER"
 uv run python -m mlx_lm lora \
