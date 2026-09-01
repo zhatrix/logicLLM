@@ -18,6 +18,7 @@ uv run python -m mlx_lm lora \
   --steps-per-eval 100 \
   --steps-per-report 20 \
   --max-seq-length 4096 \
+  --grad-checkpoint \
   --mask-prompt \
   --seed 42
 echo "训练完成 → $ADAPTER"
