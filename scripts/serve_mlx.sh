@@ -6,12 +6,19 @@
 #   所以应用侧在每个请求里显式带 "adapters": <绝对路径>（见 logicllm/config.py LLM_ADAPTER）。
 set -euo pipefail
 cd "$(dirname "$0")/.."
+PORT=${MLX_PORT:-8080}
+if lsof -tnP -iTCP:$PORT -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "⚠️ 端口 $PORT 已有服务在运行："
+  ps -o command= -p "$(lsof -tnP -iTCP:$PORT -sTCP:LISTEN | head -1)" | cut -c1-100
+  echo "如需重启：pkill -f 'mlx_lm server' 后再运行本脚本；直接使用现有服务则无需任何操作。"
+  exit 0
+fi
 BASE=${BASE_MODEL:-mlx-community/Qwen3-14B-4bit}
 ADAPTER="$(pwd)/adapters/logistics-lora"
 if [ -f "$ADAPTER/adapters.safetensors" ]; then
   echo "基座 $BASE + LoRA $ADAPTER"
-  exec uv run python -m mlx_lm server --model "$BASE" --adapter-path "$ADAPTER" --port 8080 --host 127.0.0.1
+  exec uv run python -m mlx_lm server --model "$BASE" --adapter-path "$ADAPTER" --port $PORT --host 127.0.0.1
 else
   echo "⚠️ 未找到 LoRA，使用原始基座"
-  exec uv run python -m mlx_lm server --model "$BASE" --port 8080 --host 127.0.0.1
+  exec uv run python -m mlx_lm server --model "$BASE" --port $PORT --host 127.0.0.1
 fi
