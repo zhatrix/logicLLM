@@ -22,7 +22,7 @@ if not a.skip_space:
     for d in ["logicllm", "data/kb", "data/seed", "eval", "scripts"]:
         shutil.copytree(root / d, tmp / d, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     front = ("---\ntitle: 物流通 · 物流行业大模型\nemoji: 🚚\ncolorFrom: yellow\ncolorTo: gray\nsdk: gradio\napp_file: app.py\n"
-             "pinned: false\nlicense: apache-2.0\nshort_description: Qwen2.5-7B + 物流 LoRA + RAG + 工具调用\n"
+             "pinned: false\nlicense: apache-2.0\nshort_description: Qwen3-14B + 物流 LoRA + RAG + 工具调用\n"
              f"models:\n  - Qwen/Qwen3-14B\n  - {a.owner}/{a.model}\n---\n\n")
     (tmp / "README.md").write_text(front + (root / "README.md").read_text())
     api.upload_folder(repo_id=space, repo_type="space", folder_path=str(tmp), commit_message="update space")
