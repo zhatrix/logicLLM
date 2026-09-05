@@ -4,8 +4,8 @@ install:        ## 安装依赖
 	uv sync
 kb:             ## 构建知识库向量索引
 	uv run python scripts/build_kb.py
-data:           ## 生成 SFT 数据（需要 LLM 后端在线用于知识问答；否则加 --skip-kb）
-	uv run python scripts/gen_sft.py
+data:           ## 生成 SFT 数据（知识问答复用 data/seed/teacher_kb_qa.json 缓存；题量与发布版一致）
+	uv run python scripts/gen_sft.py --n-tool 400 --n-extract 240 --n-route 120
 train:          ## LoRA 微调（默认 600 iters）
 	bash scripts/train.sh $(ITERS)
 serve-mlx:      ## 启动 mlx 推理服务（8080，带 LoRA）
