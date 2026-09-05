@@ -9,9 +9,7 @@ SERVICE_MULT = {"标准快递": 1.0, "特快": 1.6, "经济": 0.8, "零担": 0.5
 
 
 def _zone(origin: str, dest: str) -> str:
-    po, pd = CITY_PROVINCE.get(origin), CITY_PROVINCE.get(dest)
-    if po is None or pd is None:
-        return "跨区"
+    po, pd = CITY_PROVINCE[origin], CITY_PROVINCE[dest]
     if po == pd:
         return "同省"
     d = distance_km(origin, dest) or 1500
@@ -39,6 +37,9 @@ def calc_freight(origin: str, destination: str, weight_kg: float, length_cm: flo
                  declared_value: float = 0):
     if service not in SERVICE_MULT:
         return {"error": f"不支持的服务类型 {service}", "supported": list(SERVICE_MULT)}
+    unknown = [c for c in (origin, destination) if c not in CITY_PROVINCE]
+    if unknown:
+        return {"error": f"未收录城市: {'、'.join(unknown)}（仅支持国内已开通城市）", "supported": sorted(CITY_PROVINCE)}
     vol_w = (length_cm * width_cm * height_cm) / VOLUME_DIVISOR if length_cm and width_cm and height_cm else 0
     bill_w = max(weight_kg, vol_w)
     import math

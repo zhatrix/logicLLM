@@ -109,6 +109,29 @@ async def gen_kb(n: int, client: ChatClient) -> list[dict]:
 
 
 # ---------- 2. 客服 + 工具调用 ----------
+NO_SVC_NOTE = "您未指明服务类型，按默认的标准快递计算（如需特快/经济请告诉我）。\n"
+EXC_TIPS = {"破损": "请保留外包装并拍照（外包装+内件），如已保价按声明价值赔付，未保价按实际损失赔付，上限为运费 3 倍。",
+            "丢失": "轨迹停更超过 7 天可认定丢失；未保价按运费 3 倍赔偿（最高 300 元）并退还运费，已保价按声明价值赔付。",
+            "延误": "特快超承诺时效 1 天以上可退还特快与标准快递的差价。",
+            "地址错误": "派送前可联系修改，同城免费；跨城需补差价。"}
+
+
+def _query_answer(no: str, res: dict) -> str:
+    exc = f"，当前标记有异常「{res['exception']}」，我们会尽快处理" if res.get("exception") else ""
+    return (f"运单 {no} 的情况如下：\n- 路线：{res['origin']} → {res['destination']}\n- 服务：{res['service']}，重量 {res['weight_kg']}kg，运费 {res['fee']} 元\n"
+            f"- 当前状态：**{res['status']}**{exc}\n- 下单时间：{res['created_at'].replace('T', ' ')}\n如需查看详细轨迹，我可以继续为您查询。")
+
+
+def _freight_answer(o: str, d: str, w: float, res: dict) -> str:
+    return (f"{o} → {d}（{res['zone']}），计费重量 {res['billable_weight_kg']}kg"
+            + (f"（体积重 {res['volume_weight_kg']}kg 大于实重）" if res["volume_weight_kg"] > w else "")
+            + f"：\n- {res['breakdown']}\n- **合计 {res['total_fee']} 元**")
+
+
+def _exception_answer(no: str, typ: str, res: dict) -> str:
+    return f"非常抱歉给您带来不便。已为运单 {no} 登记「{typ}」异常，工单号 **{res['ticket_no']}**，客服将在 48 小时内回访处理。\n{EXC_TIPS[typ]}"
+
+
 async def gen_tool(n: int) -> list[dict]:
     init_db()
     c = _conn()
@@ -116,17 +139,15 @@ async def gen_tool(n: int) -> list[dict]:
     c.close()
     out = []
     for _ in range(n):
-        kind = rnd.choice(["query", "track", "freight", "eta", "search", "exception", "ask_no", "create"])
+        kind = rnd.choice(["query", "track", "freight", "eta", "search", "exception", "ask_no", "create",
+                           "combo", "followup_svc", "ask_then_no", "complain_then_no"])
         if kind == "query":
             w = rnd.choice(wbs)
             u = rnd.choice([f"帮我查一下运单 {w['no']}", f"{w['no']} 这个单子现在什么情况", f"查询 {w['no']}", f"我的快递 {w['no']} 到哪了"])
             call = {"name": "query_waybill", "arguments": {"waybill_no": w["no"]}}
             res = await call_tool(**{"name": call["name"], "args": call["arguments"]})
-            exc = f"，当前标记有异常「{res['exception']}」，我们会尽快处理" if res.get("exception") else ""
-            a = (f"运单 {w['no']} 的情况如下：\n- 路线：{res['origin']} → {res['destination']}\n- 服务：{res['service']}，重量 {res['weight_kg']}kg，运费 {res['fee']} 元\n"
-                 f"- 当前状态：**{res['status']}**{exc}\n- 下单时间：{res['created_at'].replace('T', ' ')}\n如需查看详细轨迹，我可以继续为您查询。")
             out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u}, tc(call),
-                                             tr(res), {"role": "assistant", "content": a}]))
+                                             tr(res), {"role": "assistant", "content": _query_answer(w["no"], res)}]))
         elif kind == "track":
             w = rnd.choice(wbs)
             u = rnd.choice([f"{w['no']} 的物流轨迹", f"看看 {w['no']} 的运输记录", f"运单{w['no']}现在在哪个环节"])
@@ -157,9 +178,7 @@ async def gen_tool(n: int) -> list[dict]:
             utxt += (f"，{svc}" if svc_in_text else "") + rnd.choice(["多少钱？", "运费怎么算？", "要花多少运费"])
             call = {"name": "calc_freight", "arguments": args}
             res = await call_tool(call["name"], call["arguments"])
-            a = ("" if svc_in_text else "您未指明服务类型，按默认的标准快递计算（如需特快/经济请告诉我）。\n") + (f"{o} → {d}（{res['zone']}），计费重量 {res['billable_weight_kg']}kg"
-                 + (f"（体积重 {res['volume_weight_kg']}kg 大于实重）" if res["volume_weight_kg"] > w else "")
-                 + f"：\n- {res['breakdown']}\n- **合计 {res['total_fee']} 元**")
+            a = ("" if svc_in_text else NO_SVC_NOTE) + _freight_answer(o, d, w, res)
             out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": utxt}, tc(call),
                                              tr(res), {"role": "assistant", "content": a}]))
         elif kind == "eta":
@@ -190,17 +209,70 @@ async def gen_tool(n: int) -> list[dict]:
             u = rnd.choice([f"运单 {w['no']} 收到时外箱{typ}了，要投诉", f"{w['no']} {typ}，怎么处理", f"我要给 {w['no']} 登记{typ}"])
             call = {"name": "report_exception", "arguments": {"waybill_no": w["no"], "type": typ, "description": f"用户反馈{typ}"}}
             res = await call_tool(call["name"], call["arguments"])
-            tip = {"破损": "请保留外包装并拍照（外包装+内件），如已保价按声明价值赔付，未保价按实际损失赔付，上限为运费 3 倍。",
-                   "丢失": "轨迹停更超过 7 天可认定丢失；未保价按运费 3 倍赔偿（最高 300 元）并退还运费，已保价按声明价值赔付。",
-                   "延误": "特快超承诺时效 1 天以上可退还特快与标准快递的差价。",
-                   "地址错误": "派送前可联系修改，同城免费；跨城需补差价。"}[typ]
-            a = f"非常抱歉给您带来不便。已为运单 {w['no']} 登记「{typ}」异常，工单号 **{res['ticket_no']}**，客服将在 48 小时内回访处理。\n{tip}"
             out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u}, tc(call),
-                                             tr(res), {"role": "assistant", "content": a}]))
+                                             tr(res), {"role": "assistant", "content": _exception_answer(w["no"], typ, res)}]))
         elif kind == "ask_no":
             u = rnd.choice(["我的快递到哪了？", "帮我查下快递", "我的包裹怎么还没到", "查一下物流"])
             a = "好的，请提供您的运单号（LL 开头的 12 位编号），或者告诉我寄/收件人手机号，我来帮您查询。"
             out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u}, {"role": "assistant", "content": a}]))
+        elif kind == "combo":  # 一句话同时问运费和时效：两个工具都要调，先算钱再算时效
+            o, d = rnd.sample(list(CITY_PROVINCE), 2)
+            item, w = rnd.choice(ITEMS)
+            w = round(w * rnd.uniform(0.6, 3.0), 1)
+            svc = rnd.choice(["标准快递", "特快", "经济"])
+            svc_in_text = rnd.random() > 0.4
+            if not svc_in_text:
+                svc = "标准快递"
+            svc_txt = f"{svc}" if svc_in_text else ""
+            u = rnd.choice([f"{o}寄{w}公斤{item}到{d}，{svc_txt}多少钱几天能到", f"从{o}发{item}到{d}，{w}kg，{svc_txt}运费和时效分别是多少",
+                            f"{o}到{d} {w}kg {item}，{svc_txt}要多少钱、什么时候能到"])
+            c1 = {"name": "calc_freight", "arguments": {"origin": o, "destination": d, "weight_kg": w, "service": svc}}
+            r1 = await call_tool(c1["name"], c1["arguments"])
+            c2 = {"name": "estimate_eta", "arguments": {"origin": o, "destination": d, "service": svc}}
+            r2 = await call_tool(c2["name"], c2["arguments"])
+            a = (("" if svc_in_text else NO_SVC_NOTE) + f"{o} → {d}（{r1['zone']}），计费重量 {r1['billable_weight_kg']}kg：\n"
+                 f"- 运费：{r1['breakdown']}，**合计 {r1['total_fee']} 元**\n"
+                 f"- 时效：约 {r2['distance_km']}km，{svc}预计 **{r2['est_days']} 天**送达（约 {r2['est_delivery_date']}）" + (f"，{r2['note']}" if r2["note"] else "")
+                 + "\n实际以揽收后轨迹为准。")
+            out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u}, tc(c1), tr(r1), tc(c2), tr(r2), {"role": "assistant", "content": a}]))
+        elif kind == "followup_svc":  # 多轮：先按默认标准快递报价，追问换服务类型要重新调工具
+            o, d = rnd.sample(list(CITY_PROVINCE), 2)
+            item, w = rnd.choice(ITEMS)
+            w = round(w * rnd.uniform(0.6, 2.5), 1)
+            u1 = rnd.choice([f"从{o}寄{w}公斤{item}到{d}多少钱？", f"{o}到{d}，{item} {w}kg，运费多少"])
+            r1 = await call_tool("calc_freight", {"origin": o, "destination": d, "weight_kg": w, "service": "标准快递"})
+            a1 = NO_SVC_NOTE + _freight_answer(o, d, w, r1)
+            new_svc = rnd.choice(["特快", "经济"])
+            u2 = rnd.choice([f"改成{new_svc}呢？", f"{new_svc}多少钱", f"换{new_svc}的话", f"那{new_svc}要多少"])
+            c2 = {"name": "calc_freight", "arguments": {"origin": o, "destination": d, "weight_kg": w, "service": new_svc}}
+            r2 = await call_tool(c2["name"], c2["arguments"])
+            diff = round(r2["total_fee"] - r1["total_fee"], 2)
+            a2 = (f"换成{new_svc}的话，{o} → {d}，计费重量 {r2['billable_weight_kg']}kg：\n- {r2['breakdown']}\n- **合计 {r2['total_fee']} 元**"
+                  + (f"，比标准快递贵 {diff} 元" if diff > 0 else f"，比标准快递便宜 {-diff} 元") + "。")
+            # 历史轮次只保留最终答复文本（与线上会话历史一致，不含工具轨迹）
+            out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u1}, {"role": "assistant", "content": a1},
+                                             {"role": "user", "content": u2}, tc(c2), tr(r2), {"role": "assistant", "content": a2}]))
+        elif kind == "ask_then_no":  # 多轮：先没给单号，追问后给了单号再查
+            w = rnd.choice(wbs)
+            u1 = rnd.choice(["帮我查个运单", "查一下我的快递", "我想查物流", "帮我看看包裹到哪了"])
+            a1 = "好的，请提供您的运单号（LL 开头的 12 位编号），或者告诉我寄/收件人手机号，我来帮您查询。"
+            u2 = rnd.choice([w["no"], f"运单号是 {w['no']}", f"{w['no']}，麻烦了", f"单号 {w['no']}"])
+            call = {"name": "query_waybill", "arguments": {"waybill_no": w["no"]}}
+            res = await call_tool(call["name"], call["arguments"])
+            out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u1}, {"role": "assistant", "content": a1},
+                                             {"role": "user", "content": u2}, tc(call), tr(res), {"role": "assistant", "content": _query_answer(w["no"], res)}]))
+        elif kind == "complain_then_no":  # 多轮：先描述问题，再给单号登记异常
+            w = rnd.choice(wbs)
+            typ = rnd.choice(["破损", "丢失", "延误"])
+            u1 = {"破损": rnd.choice(["我的快递收到的时候摔坏了，怎么办", "包裹外箱破了，里面东西也坏了"]),
+                  "丢失": rnd.choice(["我的快递好多天没动静了，是不是丢了", "包裹一直不更新物流，怎么办"]),
+                  "延误": rnd.choice(["我寄的特快已经超时了还没到", "快递比承诺时间晚了两天了"])}[typ]
+            a1 = f"{EXC_TIPS[typ]}\n请提供运单号，我帮您登记「{typ}」异常工单，客服会在 48 小时内回访。"
+            u2 = rnd.choice([f"运单号是 {w['no']}，帮我登记投诉", f"{w['no']}，麻烦登记一下", f"单号 {w['no']}，要投诉"])
+            call = {"name": "report_exception", "arguments": {"waybill_no": w["no"], "type": typ, "description": f"用户反馈{typ}"}}
+            res = await call_tool(call["name"], call["arguments"])
+            out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u1}, {"role": "assistant", "content": a1},
+                                             {"role": "user", "content": u2}, tc(call), tr(res), {"role": "assistant", "content": _exception_answer(w["no"], typ, res)}]))
         else:  # create
             o, d = rnd.sample(list(CITY_PROVINCE), 2)
             s, r = rnd.sample(NAMES, 2)
@@ -289,8 +361,9 @@ async def gen_failures(n: int) -> list[dict]:
     init_db()
     out = []
     unknown_cities = ["洛阳", "三亚", "桂林", "唐山", "襄阳", "赣州", "遵义", "绵阳"]
+    foreign_cities = ["纽约", "伦敦", "东京", "洛杉矶", "新加坡", "巴黎", "首尔", "悉尼"]
     for _ in range(n):
-        kind = rnd.choice(["bad_no", "bad_no_track", "bad_city_eta", "bad_city_freight", "bad_city_route", "no_result_phone"])
+        kind = rnd.choice(["bad_no", "bad_no_track", "bad_city_eta", "bad_city_freight", "bad_city_route", "no_result_phone", "intl_freight"])
         if kind in ("bad_no", "bad_no_track"):
             no = f"LL{rnd.randint(2027000000, 2029999999)}{rnd.randint(10, 99)}"
             tool_name = "query_waybill" if kind == "bad_no" else "track_waybill"
@@ -312,6 +385,16 @@ async def gen_failures(n: int) -> list[dict]:
             call = {"name": "calc_freight", "arguments": {"origin": c1, "destination": c2, "weight_kg": w}}
             res = await call_tool(call["name"], call["arguments"])
             a = f"抱歉，{c2} 暂不在已开通的计费城市范围内，算不了这条线路的运费。请确认城市名是否有误，或告诉我具体想寄到哪个已开通城市。"
+        elif kind == "intl_freight":  # 境外目的地：工具返回未收录，不得编造总价
+            c1 = rnd.choice(list(CITY_PROVINCE)); c2 = rnd.choice(foreign_cities)
+            item, w = rnd.choice(ITEMS)
+            u = rnd.choice([f"从{c1}寄{item}到{c2}多少钱？", f"{c1}发{w}kg{item}去{c2}，运费怎么算", f"寄东西到{c2}要多少运费"])
+            args = {"origin": c1, "destination": c2, "weight_kg": w} if c1 in u else {"origin": "上海", "destination": c2, "weight_kg": w}
+            call = {"name": "calc_freight", "arguments": args}
+            res = await call_tool(call["name"], call["arguments"])
+            a = (f"抱歉，{c2} 是境外城市，本系统的运费计算只覆盖国内已开通城市，无法直接报价。"
+                 "国际件请走国际业务：国际快递（DHL/FedEx/UPS）约 3–7 天，适合文件和样品；空运 5–10 天适合批量货；海运最便宜但需 20–45 天。"
+                 "告诉我货物类型、重量和时效要求，我可以帮您选合适的方式。")
         elif kind == "bad_city_route":
             c1 = rnd.choice(unknown_cities); c2 = rnd.choice(list(CITY_PROVINCE))
             u = f"{c1}到{c2}的干线怎么走？"
