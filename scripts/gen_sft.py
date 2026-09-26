@@ -140,7 +140,8 @@ async def gen_tool(n: int) -> list[dict]:
     out = []
     for _ in range(n):
         kind = rnd.choice(["query", "track", "freight", "eta", "search", "exception", "ask_no", "create",
-                           "combo", "followup_svc", "ask_then_no", "complain_then_no"])
+                           "combo", "followup_svc", "ask_then_no", "complain_then_no",
+                           "eta_date", "exc_status", "phone_mask", "no_field"])
         if kind == "query":
             w = rnd.choice(wbs)
             u = rnd.choice([f"帮我查一下运单 {w['no']}", f"{w['no']} 这个单子现在什么情况", f"查询 {w['no']}", f"我的快递 {w['no']} 到哪了"])
@@ -206,7 +207,9 @@ async def gen_tool(n: int) -> list[dict]:
         elif kind == "exception":
             w = rnd.choice(wbs)
             typ = rnd.choice(["破损", "丢失", "延误", "地址错误"])
-            u = rnd.choice([f"运单 {w['no']} 收到时外箱{typ}了，要投诉", f"{w['no']} {typ}，怎么处理", f"我要给 {w['no']} 登记{typ}"])
+            first = {"破损": f"运单 {w['no']} 收到时外箱破损了，要投诉", "丢失": f"运单 {w['no']} 好多天没更新，应该是丢了，要投诉",
+                     "延误": f"运单 {w['no']} 超过承诺时效还没到，要投诉", "地址错误": f"运单 {w['no']} 地址填错了，要改"}[typ]
+            u = rnd.choice([first, f"{w['no']} {typ}，怎么处理", f"我要给 {w['no']} 登记{typ}"])
             call = {"name": "report_exception", "arguments": {"waybill_no": w["no"], "type": typ, "description": f"用户反馈{typ}"}}
             res = await call_tool(call["name"], call["arguments"])
             out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u}, tc(call),
@@ -273,6 +276,60 @@ async def gen_tool(n: int) -> list[dict]:
             res = await call_tool(call["name"], call["arguments"])
             out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u1}, {"role": "assistant", "content": a1},
                                              {"role": "user", "content": u2}, tc(call), tr(res), {"role": "assistant", "content": _exception_answer(w["no"], typ, res)}]))
+        elif kind == "eta_date":  # 用户给了寄出日期：必须把 ship_date 传给工具，送达日按该日期推算，而不是按"今天"
+            o, d = rnd.sample(list(CITY_PROVINCE), 2)
+            svc = rnd.choice(["标准快递", "特快", "经济"])
+            svc_in_text = rnd.random() > 0.4
+            if not svc_in_text:
+                svc = "标准快递"
+            month = rnd.randint(9, 12)
+            day = rnd.randint(1, 28)
+            ship = f"2026-{month:02d}-{day:02d}"
+            date_txt = rnd.choice([f"{month} 月 {day} 日", f"{month}月{day}号", ship, f"2026 年 {month} 月 {day} 日"])
+            svc_txt = svc if svc_in_text else ""
+            u = rnd.choice([f"{date_txt}从{o}寄{svc_txt}到{d}，哪天能到", f"我{date_txt}发{svc_txt}件，{o}到{d}，预计几号送达",
+                            f"{o}寄{d}，{date_txt}寄出，{svc_txt}什么时候到"])
+            call = {"name": "estimate_eta", "arguments": {"origin": o, "destination": d, "service": svc, "ship_date": ship}}
+            res = await call_tool(call["name"], call["arguments"])
+            a = (("" if svc_in_text else "按默认的标准快递估算（特快可再快 1 天）：")
+                 + f"{date_txt}从{o}寄出，{o} → {d} 约 {res['distance_km']}km，{svc}预计 **{res['est_days']} 天**送达，即 **{res['est_delivery_date']}** 前后。"
+                 + (f"{res['note']}。" if res["note"] else "") + "实际以揽收后轨迹为准，恶劣天气可能延误。")
+            out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u}, tc(call), tr(res), {"role": "assistant", "content": a}]))
+        elif kind == "exc_status":  # 只是问"有没有异常"：查运单即可，绝不能登记新异常（report_exception 只在用户明确要投诉/登记时用）
+            w = rnd.choice(wbs)
+            u = rnd.choice([f"{w['no']} 这单有没有异常", f"运单 {w['no']} 是不是出问题了", f"{w['no']} 有异常记录吗", f"帮我看看 {w['no']} 有没有什么问题"])
+            call = {"name": "query_waybill", "arguments": {"waybill_no": w["no"]}}
+            res = await call_tool(call["name"], call["arguments"])
+            if res.get("exception"):
+                a = (f"运单 {w['no']} 当前标记有异常「{res['exception']}」，状态 {res['status']}（{res['origin']} → {res['destination']}，{res['service']}）。"
+                     f"网点正在处理；如需登记投诉工单或了解处理进度，请告诉我。")
+            else:
+                a = (f"运单 {w['no']} 目前没有异常记录，状态正常：**{res['status']}**（{res['origin']} → {res['destination']}，{res['service']}）。"
+                     f"如果您实际遇到了破损、丢失或延误等问题，告诉我可以帮您登记工单。")
+            out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u}, tc(call), tr(res), {"role": "assistant", "content": a}]))
+        elif kind == "phone_mask":  # 问电话：查到后必须脱敏（隐藏中间四位、姓名部分字），并说明依据
+            w = rnd.choice(wbs)
+            who = rnd.choice(["收件人", "寄件人"])
+            u = rnd.choice([f"{w['no']} {who}的电话是多少", f"查一下运单 {w['no']} 的{who}手机号", f"{w['no']} {who}联系方式", f"运单 {w['no']} 的{who}怎么联系"])
+            call = {"name": "query_waybill", "arguments": {"waybill_no": w["no"]}}
+            res = await call_tool(call["name"], call["arguments"])
+            ph = res["receiver_phone"] if who == "收件人" else res["sender_phone"]
+            nm = res["receiver"] if who == "收件人" else res["sender"]
+            masked, nm_masked = ph[:3] + "****" + ph[7:], nm[0] + "*" * (len(nm) - 1)
+            a = (f"运单 {w['no']} 的{who}是 {nm_masked}，联系电话 {masked}。"
+                 f"按《个人信息保护法》和公司隐私规定，手机号中间四位需脱敏展示，完整号码请在有权限的内部系统中查看。"
+                 f"该运单当前状态：{res['status']}。")
+            out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u}, tc(call), tr(res), {"role": "assistant", "content": a}]))
+        elif kind == "no_field":  # 问系统里根本没有的字段：如实说明没有，不编造原因
+            w = rnd.choice(wbs)
+            ask, fld = rnd.choice([("司机是谁", "司机信息"), ("司机电话", "司机电话"), ("车牌号", "车牌号"), ("派送员的电话", "派送员电话"),
+                                   ("快递员叫什么", "快递员姓名"), ("航班号", "航班/车次信息"), ("用的哪家航空公司", "承运航空公司")])
+            u = rnd.choice([f"{w['no']} 这单的{ask}", f"运单 {w['no']} 的{ask}是多少", f"帮我查 {w['no']} 的{ask}"])
+            call = {"name": "query_waybill", "arguments": {"waybill_no": w["no"]}}
+            res = await call_tool(call["name"], call["arguments"])
+            a = (f"抱歉，运单系统里不记录{fld}，我无法提供。能查到的是运单 {w['no']} 的当前状态：**{res['status']}**（{res['origin']} → {res['destination']}，{res['service']}）。"
+                 f"如需联系派送环节，建议联系{res['destination']}的派送网点，或者我帮您登记一条咨询工单。")
+            out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u}, tc(call), tr(res), {"role": "assistant", "content": a}]))
         else:  # create
             o, d = rnd.sample(list(CITY_PROVINCE), 2)
             s, r = rnd.sample(NAMES, 2)
@@ -301,16 +358,18 @@ def gen_extract(n: int) -> list[dict]:
         prov = CITY_PROVINCE[city]
         name = rnd.choice(NAMES)
         phone = f"1{rnd.choice('3589')}{rnd.randint(100000000, 999999999)}"
+        # 电话写法变体：+86 / 空格 / 连字符分组，标签一律归一为 11 位连续数字
+        phone_txt = rnd.choice([phone, phone, phone, f"+86 {phone[:3]} {phone[3:7]} {phone[7:]}", f"{phone[:3]}-{phone[3:7]}-{phone[7:]}", f"{phone[:3]} {phone[3:7]} {phone[7:]}"])
         dist = rnd.choice(CITY_DISTRICTS[city])
         detail = f"{rnd.choice(STREETS)}{rnd.randint(1, 500)}号{rnd.choice(['', '3栋2单元501', 'A座1201', '科技园T3栋'])}"
         provtxt = "" if prov == city else rnd.choice([province_full(prov), prov, ""])
         citytxt = f"{city}市" if rnd.random() < 0.7 else city
         item, w = rnd.choice(ITEMS)
         layout = rnd.choice([
-            f"收件人：{name} {phone} {provtxt}{citytxt}{dist}{detail}",
-            f"{provtxt}{citytxt}{dist}{detail}，{name}，{phone}",
-            f"{name} {phone}\n{provtxt}{citytxt}{dist}{detail}\n物品：{item} {w}kg",
-            f"请发到{provtxt}{citytxt}{dist}{detail}，收件人{name}，电话{phone}，寄的是{item}",
+            f"收件人：{name} {phone_txt} {provtxt}{citytxt}{dist}{detail}",
+            f"{provtxt}{citytxt}{dist}{detail}，{name}，{phone_txt}",
+            f"{name} {phone_txt}\n{provtxt}{citytxt}{dist}{detail}\n物品：{item} {w}kg",
+            f"请发到{provtxt}{citytxt}{dist}{detail}，收件人{name}，电话{phone_txt}，寄的是{item}",
         ])
         u = rnd.choice(["提取收件信息：", "把下面的地址解析成结构化字段：", "帮我抽取这段文本中的收件人信息，输出JSON：", ""]) + layout
         label = {"name": name, "phone": phone, "province": prov, "city": city, "district": dist, "detail": detail,
@@ -411,6 +470,130 @@ async def gen_failures(n: int) -> list[dict]:
     return out
 
 
+# ---------- 6. 数值套档（无城市，纯规则问答） ----------
+# 答案全部由与 estimate_eta / calc_freight 相同的规则算出；分界点附近加密采样，专治"1600km 答 3 天"这类套错档
+ETA_TIERS = [(500, 2, "≤500km"), (1500, 3, "500–1500km"), (2500, 4, "1500–2500km"), (float("inf"), 5, ">2500km")]
+ETA_ADJ = {"标准快递": 0, "特快": -1, "经济": 2, "零担": 3}
+
+
+def _n(x: float) -> str:
+    return f"{x:g}" if float(x).is_integer() else f"{round(x, 2):g}"
+
+
+def _eta_days(d: int, svc: str, remote: bool) -> tuple[int, int, str]:
+    base, label = next((days, lab) for ub, days, lab in ETA_TIERS if d <= ub)
+    return max(1, base + (2 if remote else 0) + ETA_ADJ[svc]), base, label
+
+
+def _near_boundary(bounds: list[int], lo: int, hi: int) -> int:
+    if rnd.random() < 0.7:
+        b = rnd.choice(bounds)
+        return max(lo, b + rnd.choice([0, 0, -1, 1]) * rnd.choice([10, 20, 50, 80, 100, 150]))
+    return rnd.randint(lo, hi) // 10 * 10
+
+
+def gen_numeric(n: int) -> list[dict]:
+    from logicllm.tools.pricing import ADD_KG, FIRST_KG, SERVICE_MULT, VOLUME_DIVISOR
+    import math
+    out = []
+    for _ in range(n):
+        kind = rnd.choice(["eta", "eta", "eta", "eta_cmp", "zone", "freight", "freight", "volume", "insurance", "oversize", "alcohol", "ltl"])
+        if kind == "eta":
+            d = _near_boundary([500, 1500, 2500], 60, 4000)
+            svc = rnd.choice(["", "", "标准快递", "特快", "经济", "零担"])
+            remote = rnd.random() < 0.2
+            days, base, label = _eta_days(d, svc or "标准快递", remote)
+            where = rnd.choice(["新疆", "西藏", "青海", "内蒙古", "甘肃", "宁夏"]) if remote else ""
+            q = rnd.choice([f"{d} 公里{svc}大概几天到？", f"{d}km 的线路{svc}要几天？", f"两地相距 {d} 公里，{svc or '快递'}几天能到",
+                            f"寄到 {d} 公里外{svc}多久能收到？"])
+            if remote:
+                q = q.rstrip("？") + f"，收件地在{where}？"
+            steps = [f"{d}km 落在 {label} 档，标准快递 {base} 天"]
+            if remote:
+                steps.append(f"{where}属偏远地区 +2 天")
+            if svc and svc != "标准快递":
+                steps.append({"特快": "特快 −1 天（最少 1 天）", "经济": "经济 +2 天", "零担": "零担 +3 天"}[svc])
+            a = (f"{days} 天。" + "；".join(steps) + "。" + ("" if svc else "（未指明服务类型，按标准快递计算；特快可快 1 天。）")
+                 + ("分界线是 500/1500/2500km，恰好等于分界值算低一档。" if any(abs(d - b) <= 150 for b in (500, 1500, 2500)) else ""))
+        elif kind == "eta_cmp":
+            b = rnd.choice([500, 1500, 2500])
+            d1, d2 = b - rnd.choice([20, 50, 100, 150]), b + rnd.choice([20, 50, 100, 150])
+            if rnd.random() < 0.5:
+                d1, d2 = d2, d1
+            (t1, _, l1), (t2, _, l2) = _eta_days(d1, "标准快递", False), _eta_days(d2, "标准快递", False)
+            q = rnd.choice([f"{d1} 公里和 {d2} 公里时效一样吗？", f"{d1}km 跟 {d2}km 标准快递差几天？"])
+            a = f"不一样。{d1}km 在 {l1} 档，{t1} 天；{d2}km 在 {l2} 档，{t2} 天。分界线是 {b}km，相差 {abs(t1 - t2)} 天。"
+        elif kind == "zone":
+            d = _near_boundary([800], 100, 3000)
+            zone = "邻近" if d <= 800 else "跨区"
+            q = rnd.choice([f"跨省寄件，两地 {d} 公里，按什么区域计费？", f"{d}km 跨省算邻近还是跨区？"])
+            a = (f"按**{zone}**计费。跨省时公路里程 ≤800km 为邻近（首重 10 元、续重 4 元/kg），>800km 为跨区（首重 12 元、续重 6 元/kg）；"
+                 f"{d}km {'未超过' if d <= 800 else '超过'} 800km。同省不论距离都按同省（首重 8 元、续重 2 元/kg）。")
+        elif kind in ("freight", "volume"):
+            zone = rnd.choice(list(FIRST_KG))
+            svc = rnd.choice(["标准快递", "标准快递", "特快", "经济"])
+            w = round(rnd.uniform(0.3, 12), 1)
+            dims = (rnd.randint(20, 70), rnd.randint(15, 50), rnd.randint(10, 45)) if (kind == "volume" or rnd.random() < 0.4) else None
+            vol = dims[0] * dims[1] * dims[2] / VOLUME_DIVISOR if dims else 0
+            bill = math.ceil(max(w, vol) * 2) / 2
+            base = (FIRST_KG[zone] + max(0, bill - 1) * ADD_KG[zone]) * SERVICE_MULT[svc]
+            box = f"，箱子 {dims[0]}×{dims[1]}×{dims[2]}cm" if dims else ""
+            if kind == "volume":
+                q = rnd.choice([f"{w}kg 的包裹{box}，计费重量是多少？", f"实重 {w}kg{box}，按多少公斤收费？"])
+                a = (f"计费重量 **{_n(bill)}kg**。体积重 = {dims[0]}×{dims[1]}×{dims[2]}÷6000 ≈ {round(vol, 2)}kg，"
+                     f"取实重与体积重较大者 {round(max(w, vol), 2)}kg，再向上取整到 0.5kg。")
+            else:
+                q = rnd.choice([f"{zone}件 {w}kg{box}，{svc}运费多少？", f"按{zone}计费，{w}公斤{box}，{svc}要多少钱？"])
+                steps = []
+                if dims:
+                    steps.append(f"体积重 {dims[0]}×{dims[1]}×{dims[2]}÷6000 ≈ {round(vol, 2)}kg")
+                steps.append(f"计费重量 {_n(bill)}kg（取实重与体积重较大者，向上取整到 0.5kg）")
+                steps.append(f"{zone}：首重 {_n(FIRST_KG[zone])} 元 + 续重 {_n(max(0, bill - 1))}kg×{_n(ADD_KG[zone])} 元"
+                             + (f"，×{SERVICE_MULT[svc]}（{svc}）" if svc != "标准快递" else ""))
+                a = "；".join(steps) + f"，**合计 {_n(round(base, 2))} 元**（不含偏远、保价等附加费）。"
+        elif kind == "insurance":
+            v = rnd.choice([50, 100, 150, 199, 200, 201, 300, 500, 800, 1000, 2000, 3000, 5000, 8000, 10000])
+            fee = max(1.0, v * 0.005)
+            q = rnd.choice([f"保价 {v} 元要交多少保价费？", f"声明价值 {v} 元，保价费怎么算？"])
+            a = f"保价费 **{_n(round(fee, 2))} 元**。规则是声明价值 × 0.5%，最低 1 元：{v}×0.5% = {_n(round(v * 0.005, 2))} 元" + ("，低于 1 元按 1 元收。" if v * 0.005 < 1 else "。")
+        elif kind == "alcohol":  # 酒精度三档：≤24 不限 / 24–70 限寄 / >70 禁寄；酒精制品（非酒类饮品）≥24% 直接按易燃易爆禁寄
+            deg = rnd.choice([10, 15, 20, 23, 24, 25, 30, 38, 42, 45, 50, 52, 53, 56, 60, 65, 68, 70, 71, 72, 75, 80, 90, 95, 99])
+            is_drink = rnd.random() < 0.7
+            thing = rnd.choice(["酒", "白酒", "米酒", "黄酒", "洋酒", "威士忌"]) if is_drink else rnd.choice(["酒精", "医用酒精", "酒精消毒液", "酒精喷雾"])
+            q = rnd.choice([f"{deg} 度的{thing}能寄吗？", f"{deg}% 的{thing}可以走快递吗？", f"酒精浓度 {deg}% 的{thing}寄得了吗", f"{thing}，{deg} 度，能不能寄"])
+            if not is_drink and deg >= 24:
+                a = (f"不能。{thing}属于酒精制品而不是酒类饮品，酒精浓度 ≥24% 即按易燃易爆品禁寄（{deg}% ≥ 24%）"
+                     + ("，而且任何超过 70% 的酒精液体都禁寄" if deg > 70 else "") + "。")
+            elif deg <= 24:
+                a = f"能，不限量。{deg}% 未超过 24%，酒精度 ≤24% 的{'酒类' if is_drink else '液体'}不受限制，密封防漏、正常防碎包装即可。"
+            elif deg <= 70:
+                a = f"能，有条件。{deg}% 在 24%–70% 区间内（{deg} ≤ 70），每件不超过 5L、只能陆运、需防碎包装。" + ("70 度整仍在区间内，超过 70 度才禁寄。" if deg == 70 else "")
+            else:
+                a = f"不能。{deg}% 已超过 70% 的禁寄线（{deg} > 70），属于高浓度易燃液体，禁寄。"
+        elif kind == "ltl":  # 零担门槛 ≥30kg
+            w = rnd.choice([5, 10, 15, 20, 25, 28, 29, 29.5, 30, 31, 35, 40, 50, 80, 120, 200])
+            q = rnd.choice([f"{_n(w)} 公斤的货能走零担吗？", f"{_n(w)}kg 可以发零担吗", f"{_n(w)} 公斤走零担还是快递？"])
+            if w >= 30:
+                a = f"能。零担要求单票 ≥30kg，{_n(w)}kg 满足门槛（{_n(w)} ≥ 30）；零担按标准快递运费 ×0.5 计收，时效比标准快递慢 3 天，适合不急的大件。"
+            else:
+                a = f"不能。零担仅限 ≥30kg 的货物，{_n(w)}kg 没达到门槛（{_n(w)} < 30），请走快递：标准快递，或特快（×1.6，快 1 天）、经济（×0.8，慢 2 天）。"
+        else:  # oversize
+            if rnd.random() < 0.5:
+                w = rnd.choice([45, 48, 49.5, 50, 50.5, 51, 52, 55, 60])
+                hit = w > 50
+                q = rnd.choice([f"单件 {_n(w)} 公斤要加超重操作费吗？", f"{_n(w)}kg 的货算超重吗？"])
+                a = (f"{'要' if hit else '不要'}。单件 > 50kg 或单边 > 150cm 加收 30 元操作费；{_n(w)}kg "
+                     + ("超过 50kg，加收 30 元。" if hit else "未超过 50kg（恰好 50kg 不算超），不收。"))
+            else:
+                L = rnd.choice([120, 140, 149, 150, 151, 155, 160, 180])
+                hit = L > 150
+                q = rnd.choice([f"箱子最长边 {L}cm 要加钱吗？", f"单边 {L} 厘米算超长吗？"])
+                a = (f"{'要' if hit else '不要'}。单边 > 150cm 或单件 > 50kg 加收 30 元操作费；{L}cm "
+                     + ("超过 150cm，加收 30 元。" if hit else "未超过 150cm（恰好 150cm 不算超），不收。"))
+        out.append(sample(SYSTEM_PLAIN, [{"role": "user", "content": q}, {"role": "assistant", "content": a}]))
+    return out
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-kb", type=int, default=200)
@@ -418,17 +601,28 @@ async def main():
     ap.add_argument("--n-extract", type=int, default=150)
     ap.add_argument("--n-route", type=int, default=100)
     ap.add_argument("--n-fail", type=int, default=60)
+    ap.add_argument("--n-numeric", type=int, default=0, help="数值套档问答（时效/计费区域/运费/体积重/保价/超重）")
     ap.add_argument("--valid-ratio", type=float, default=0.08)
+    ap.add_argument("--seed", type=int, default=7, help="随机种子；换种子即得到一批新样本")
+    ap.add_argument("--out", default=str(OUT), help="输出目录")
     ap.add_argument("--skip-kb", action="store_true", help="不用教师模型生成知识问答")
     ap.add_argument("--kb-cache", default=str(config.DATA_DIR / "seed" / "teacher_kb_qa.json"), help="已生成的知识问答缓存，存在则直接复用")
     a = ap.parse_args()
-    OUT.mkdir(parents=True, exist_ok=True)
+    rnd.seed(a.seed)
+    # report_exception 会写库：在临时的全新演示库上生成，既不污染 data/waybills.sqlite，也避免历次生成的异常轨迹累积进样本
+    import tempfile
+    from logicllm.tools import waybill
+    waybill.DB_PATH = Path(tempfile.mkdtemp()) / "waybills.sqlite"
+    out_dir = Path(a.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     data = []
     print("生成工具调用样本…"); data += await gen_tool(a.n_tool)
     print("生成抽取样本…"); data += gen_extract(a.n_extract)
     print("生成路径样本…"); data += await gen_route(a.n_route)
     print("生成失败/边界样本…"); data += await gen_failures(a.n_fail)
+    if a.n_numeric:
+        print("生成数值套档样本…"); data += gen_numeric(a.n_numeric)
     cache = Path(a.kb_cache)
     if not a.skip_kb and a.n_kb > 0 and cache.exists():
         pairs = json.load(open(cache, encoding="utf-8"))
@@ -484,13 +678,13 @@ async def main():
 
     train_rows, valid_rows = expand(train_sessions), expand(valid_sessions)
     rnd.shuffle(train_rows)
-    with open(OUT / "valid.jsonl", "w", encoding="utf-8") as f:
+    with open(out_dir / "valid.jsonl", "w", encoding="utf-8") as f:
         for x in valid_rows:
             f.write(json.dumps(x, ensure_ascii=False) + "\n")
-    with open(OUT / "train.jsonl", "w", encoding="utf-8") as f:
+    with open(out_dir / "train.jsonl", "w", encoding="utf-8") as f:
         for x in train_rows:
             f.write(json.dumps(x, ensure_ascii=False) + "\n")
-    print(f"完成：train {len(train_rows)} 条（会话 {len(train_sessions)}），valid {len(valid_rows)} 条（会话 {len(valid_sessions)}）→ {OUT}")
+    print(f"完成：train {len(train_rows)} 条（会话 {len(train_sessions)}），valid {len(valid_rows)} 条（会话 {len(valid_sessions)}）→ {out_dir}")
 
 
 if __name__ == "__main__":
