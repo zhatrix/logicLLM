@@ -5,7 +5,7 @@
   PEFT : y = W x + (alpha / r) * B @ A @ x             A: (r, in)       B: (out, r)
   ⇒ A = lora_a.T, B = lora_b.T, alpha = scale * r
 
-用法：uv run python scripts/convert_adapter_to_peft.py [--src adapters/logistics-lora] [--dst adapters/logistics-lora-peft]
+用法：uv run python scripts/convert_adapter_to_peft.py [--src adapters/logistics-lora] [--dst adapters/logistics-q3-14b-peft]
 """
 from __future__ import annotations
 
@@ -17,13 +17,13 @@ import torch
 from safetensors import safe_open
 from safetensors.torch import save_file
 
-BASE_MODEL_HF = "Qwen/Qwen2.5-7B-Instruct"
+BASE_MODEL_HF = "Qwen/Qwen3-14B"
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", default="adapters/logistics-lora")
-    ap.add_argument("--dst", default="adapters/logistics-lora-peft")
+    ap.add_argument("--dst", default="adapters/logistics-q3-14b-peft")
     ap.add_argument("--base", default=BASE_MODEL_HF)
     a = ap.parse_args()
     src, dst = Path(a.src), Path(a.dst)
