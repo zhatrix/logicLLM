@@ -7,3 +7,4 @@ data/sft/
 adapters/
 models/
 .env
+.ms_upload_cache
