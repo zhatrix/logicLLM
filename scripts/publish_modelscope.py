@@ -18,7 +18,7 @@ api = HubApi()
 if not a.skip_model:
     repo = f"{a.owner}/{a.model}"
     api.create_repo(repo, repo_type="model", visibility="public", license="apache-2.0",
-                    chinese_name="物流通 LoRA v2（Qwen3-14B）", exist_ok=True)
+                    chinese_name="物流通 LoRA v2.4（Qwen3-14B）", exist_ok=True)
     api.upload_folder(repo_id=repo, repo_type="model", folder_path="adapters/logistics-q3-14b-peft",
                       commit_message="LoRA adapter (PEFT)")
     print("模型仓库:", f"https://www.modelscope.cn/models/{repo}")
@@ -26,7 +26,7 @@ if not a.skip_model:
 if not a.skip_studio:
     repo = f"{a.owner}/{a.studio}"
     api.create_repo(repo, repo_type="studio", visibility="public", license="apache-2.0", sdk_type="gradio",
-                    chinese_name="物流通 · 物流行业大模型", description="Qwen2.5-7B + 物流 LoRA + 知识库检索 + 业务工具调用",
+                    chinese_name="物流通 · 物流行业大模型", description="Qwen3-14B + 物流 LoRA v2.4 + 知识库检索 + 业务工具调用",
                     exist_ok=True)
     api.upload_folder(repo_id=repo, repo_type="studio", folder_path=".",
                       allow_patterns=["app.py", "requirements.txt", "README.md", "Makefile", "pyproject.toml", ".env.example",
