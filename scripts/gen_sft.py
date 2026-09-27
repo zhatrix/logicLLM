@@ -110,6 +110,11 @@ async def gen_kb(n: int, client: ChatClient) -> list[dict]:
 
 # ---------- 2. 客服 + 工具调用 ----------
 NO_SVC_NOTE = "您未指明服务类型，按默认的标准快递计算（如需特快/经济请告诉我）。\n"
+
+
+def _svc_prefix(svc_in_text: bool, svc: str) -> str:
+    """用户说了服务类型就明确复述"按您指定的 X 计算"，没说才用默认说明——两种情形都给模型明确的开头，避免乱套模板。"""
+    return f"按您指定的{svc}计算：\n" if svc_in_text else NO_SVC_NOTE
 EXC_TIPS = {"破损": "请保留外包装并拍照（外包装+内件），如已保价按声明价值赔付，未保价按实际损失赔付，上限为运费 3 倍。",
             "丢失": "轨迹停更超过 7 天可认定丢失；未保价按运费 3 倍赔偿（最高 300 元）并退还运费，已保价按声明价值赔付。",
             "延误": "特快超承诺时效 1 天以上可退还特快与标准快递的差价。",
@@ -139,7 +144,7 @@ async def gen_tool(n: int) -> list[dict]:
     c.close()
     out = []
     for _ in range(n):
-        kind = rnd.choice(["query", "track", "freight", "eta", "search", "exception", "ask_no", "create",
+        kind = rnd.choice(["query", "track", "freight", "eta", "search", "search", "exception", "ask_no", "create",
                            "combo", "followup_svc", "ask_then_no", "complain_then_no",
                            "eta_date", "exc_status", "phone_mask", "no_field"])
         if kind == "query":
@@ -179,7 +184,7 @@ async def gen_tool(n: int) -> list[dict]:
             utxt += (f"，{svc}" if svc_in_text else "") + rnd.choice(["多少钱？", "运费怎么算？", "要花多少运费"])
             call = {"name": "calc_freight", "arguments": args}
             res = await call_tool(call["name"], call["arguments"])
-            a = ("" if svc_in_text else NO_SVC_NOTE) + _freight_answer(o, d, w, res)
+            a = _svc_prefix(svc_in_text, svc) + _freight_answer(o, d, w, res)
             out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": utxt}, tc(call),
                                              tr(res), {"role": "assistant", "content": a}]))
         elif kind == "eta":
@@ -233,7 +238,7 @@ async def gen_tool(n: int) -> list[dict]:
             r1 = await call_tool(c1["name"], c1["arguments"])
             c2 = {"name": "estimate_eta", "arguments": {"origin": o, "destination": d, "service": svc}}
             r2 = await call_tool(c2["name"], c2["arguments"])
-            a = (("" if svc_in_text else NO_SVC_NOTE) + f"{o} → {d}（{r1['zone']}），计费重量 {r1['billable_weight_kg']}kg：\n"
+            a = (_svc_prefix(svc_in_text, svc) + f"{o} → {d}（{r1['zone']}），计费重量 {r1['billable_weight_kg']}kg：\n"
                  f"- 运费：{r1['breakdown']}，**合计 {r1['total_fee']} 元**\n"
                  f"- 时效：约 {r2['distance_km']}km，{svc}预计 **{r2['est_days']} 天**送达（约 {r2['est_delivery_date']}）" + (f"，{r2['note']}" if r2["note"] else "")
                  + "\n实际以揽收后轨迹为准。")
@@ -404,12 +409,15 @@ async def gen_route(n: int) -> list[dict]:
         else:
             depot = rnd.choice(cities)
             stops = rnd.sample([c for c in cities if c != depot], rnd.randint(3, 6))
-            u = f"从{depot}出发，要给{'、'.join(stops)}送货，怎么排顺序最省路？"
-            call = {"name": "optimize_delivery_order", "arguments": {"depot": depot, "stops": stops}}
+            no_return = rnd.random() < 0.3
+            u = (f"从{depot}出发，要给{'、'.join(stops)}送货，怎么排顺序最省路？" if not no_return
+                 else rnd.choice([f"从{depot}出发送{'、'.join(stops)}，送完不回{depot}，怎么排", f"{depot}发车给{'、'.join(stops)}送货，单程不返回，顺序怎么排最省"]))
+            call = {"name": "optimize_delivery_order", "arguments": {"depot": depot, "stops": stops, **({"return_to_depot": False} if no_return else {})}}
             res = await call_tool(call["name"], call["arguments"])
             if "error" in res:
                 continue
-            a = f"建议配送顺序：{' → '.join(res['sequence'])}\n- 总里程约 {res['total_km']} km，行驶约 {res['est_drive_hours']} 小时\n- 采用最近邻 + 2-opt 优化；若各点有收货时间窗，请告诉我以便进一步调整。"
+            a = (f"建议配送顺序：{' → '.join(res['sequence'])}" + ("（单程，不返回）" if no_return else "")
+                 + f"\n- 总里程约 {res['total_km']} km，行驶约 {res['est_drive_hours']} 小时\n- 采用最近邻 + 2-opt 优化；若各点有收货时间窗，请告诉我以便进一步调整。")
         out.append(sample(SYSTEM_TOOLS, [{"role": "user", "content": u}, tc(call),
                                          tr(res), {"role": "assistant", "content": a}]))
     return out
@@ -485,6 +493,11 @@ def _eta_days(d: int, svc: str, remote: bool) -> tuple[int, int, str]:
     return max(1, base + (2 if remote else 0) + ETA_ADJ[svc]), base, label
 
 
+def _tier_chain(d: int) -> str:
+    """把里程与 500/1500/2500 逐个比较写出来，让模型先比大小再套档，而不是凭感觉猜档。"""
+    return "，".join(f"{d} {'>' if d > b else '≤'} {b}" for b in (500, 1500, 2500))
+
+
 def _near_boundary(bounds: list[int], lo: int, hi: int) -> int:
     if rnd.random() < 0.7:
         b = rnd.choice(bounds)
@@ -497,7 +510,7 @@ def gen_numeric(n: int) -> list[dict]:
     import math
     out = []
     for _ in range(n):
-        kind = rnd.choice(["eta", "eta", "eta", "eta_cmp", "zone", "freight", "freight", "volume", "insurance", "oversize", "alcohol", "ltl"])
+        kind = rnd.choice(["eta", "eta", "eta", "eta", "eta_cmp", "zone", "zone", "freight", "freight", "volume", "insurance", "oversize", "alcohol", "alcohol", "ltl", "ltl"])
         if kind == "eta":
             d = _near_boundary([500, 1500, 2500], 60, 4000)
             svc = rnd.choice(["", "", "标准快递", "特快", "经济", "零担"])
@@ -508,13 +521,14 @@ def gen_numeric(n: int) -> list[dict]:
                             f"寄到 {d} 公里外{svc}多久能收到？"])
             if remote:
                 q = q.rstrip("？") + f"，收件地在{where}？"
-            steps = [f"{d}km 落在 {label} 档，标准快递 {base} 天"]
+            steps = [f"里程 {d}km 逐档比较：" + _tier_chain(d) + f" → {label} 档，标准快递 {base} 天"]
             if remote:
-                steps.append(f"{where}属偏远地区 +2 天")
+                steps.append(f"{where}属偏远六省区，+2 天")
             if svc and svc != "标准快递":
                 steps.append({"特快": "特快 −1 天（最少 1 天）", "经济": "经济 +2 天", "零担": "零担 +3 天"}[svc])
-            a = (f"{days} 天。" + "；".join(steps) + "。" + ("" if svc else "（未指明服务类型，按标准快递计算；特快可快 1 天。）")
-                 + ("分界线是 500/1500/2500km，恰好等于分界值算低一档。" if any(abs(d - b) <= 150 for b in (500, 1500, 2500)) else ""))
+            a = ("；".join(steps) + f" → **{svc or '标准快递'}约 {days} 天**。"
+                 + ("" if svc else "（未指明服务类型，按标准快递计算；特快可快 1 天。）")
+                 + ("边界值归低一档：500/1500/2500km 整分别是 2/3/4 天。" if any(abs(d - b) <= 150 for b in (500, 1500, 2500)) else ""))
         elif kind == "eta_cmp":
             b = rnd.choice([500, 1500, 2500])
             d1, d2 = b - rnd.choice([20, 50, 100, 150]), b + rnd.choice([20, 50, 100, 150])
@@ -522,13 +536,15 @@ def gen_numeric(n: int) -> list[dict]:
                 d1, d2 = d2, d1
             (t1, _, l1), (t2, _, l2) = _eta_days(d1, "标准快递", False), _eta_days(d2, "标准快递", False)
             q = rnd.choice([f"{d1} 公里和 {d2} 公里时效一样吗？", f"{d1}km 跟 {d2}km 标准快递差几天？"])
-            a = f"不一样。{d1}km 在 {l1} 档，{t1} 天；{d2}km 在 {l2} 档，{t2} 天。分界线是 {b}km，相差 {abs(t1 - t2)} 天。"
+            a = (f"分界线是 {b}km：{d1} {'>' if d1 > b else '≤'} {b} → {l1} 档 {t1} 天；{d2} {'>' if d2 > b else '≤'} {b} → {l2} 档 {t2} 天。"
+                 f"**不一样，相差 {abs(t1 - t2)} 天**（{min(d1, d2)}km {min(t1, t2)} 天，{max(d1, d2)}km {max(t1, t2)} 天）。")
         elif kind == "zone":
             d = _near_boundary([800], 100, 3000)
             zone = "邻近" if d <= 800 else "跨区"
             q = rnd.choice([f"跨省寄件，两地 {d} 公里，按什么区域计费？", f"{d}km 跨省算邻近还是跨区？"])
-            a = (f"按**{zone}**计费。跨省时公路里程 ≤800km 为邻近（首重 10 元、续重 4 元/kg），>800km 为跨区（首重 12 元、续重 6 元/kg）；"
-                 f"{d}km {'未超过' if d <= 800 else '超过'} 800km。同省不论距离都按同省（首重 8 元、续重 2 元/kg）。")
+            a = (f"跨省件看 800km 分界线：{d} {'>' if d > 800 else '≤'} 800 → **按{zone}计费**"
+                 f"（{'首重 12 元、续重 6 元/kg' if zone == '跨区' else '首重 10 元、续重 4 元/kg'}）。"
+                 f"规则：跨省且里程 ≤800km 为邻近，>800km 为跨区，800km 整算邻近；同省不论距离都按同省（首重 8 元、续重 2 元/kg）。")
         elif kind in ("freight", "volume"):
             zone = rnd.choice(list(FIRST_KG))
             svc = rnd.choice(["标准快递", "标准快递", "特快", "经济"])
@@ -555,41 +571,45 @@ def gen_numeric(n: int) -> list[dict]:
             v = rnd.choice([50, 100, 150, 199, 200, 201, 300, 500, 800, 1000, 2000, 3000, 5000, 8000, 10000])
             fee = max(1.0, v * 0.005)
             q = rnd.choice([f"保价 {v} 元要交多少保价费？", f"声明价值 {v} 元，保价费怎么算？"])
-            a = f"保价费 **{_n(round(fee, 2))} 元**。规则是声明价值 × 0.5%，最低 1 元：{v}×0.5% = {_n(round(v * 0.005, 2))} 元" + ("，低于 1 元按 1 元收。" if v * 0.005 < 1 else "。")
+            a = (f"规则是声明价值 × 0.5%，最低 1 元：{v}×0.5% = {_n(round(v * 0.005, 2))} 元"
+                 + ("，不足 1 元按 1 元收" if v * 0.005 < 1 else "") + f" → **保价费 {_n(round(fee, 2))} 元**。")
         elif kind == "alcohol":  # 酒精度三档：≤24 不限 / 24–70 限寄 / >70 禁寄；酒精制品（非酒类饮品）≥24% 直接按易燃易爆禁寄
             deg = rnd.choice([10, 15, 20, 23, 24, 25, 30, 38, 42, 45, 50, 52, 53, 56, 60, 65, 68, 70, 71, 72, 75, 80, 90, 95, 99])
             is_drink = rnd.random() < 0.7
             thing = rnd.choice(["酒", "白酒", "米酒", "黄酒", "洋酒", "威士忌"]) if is_drink else rnd.choice(["酒精", "医用酒精", "酒精消毒液", "酒精喷雾"])
             q = rnd.choice([f"{deg} 度的{thing}能寄吗？", f"{deg}% 的{thing}可以走快递吗？", f"酒精浓度 {deg}% 的{thing}寄得了吗", f"{thing}，{deg} 度，能不能寄"])
+            cmp24, cmp70 = (">" if deg > 24 else "≤"), (">" if deg > 70 else "≤")
+            chain = f"{deg} {cmp24} 24，{deg} {cmp70} 70"
             if not is_drink and deg >= 24:
-                a = (f"不能。{thing}属于酒精制品而不是酒类饮品，酒精浓度 ≥24% 即按易燃易爆品禁寄（{deg}% ≥ 24%）"
-                     + ("，而且任何超过 70% 的酒精液体都禁寄" if deg > 70 else "") + "。")
+                a = (f"{thing}是酒精制品而不是酒类饮品，规则是酒精浓度 ≥24% 即按易燃易爆品禁寄：{deg} ≥ 24 → **不能寄**"
+                     + ("；而且任何超过 70% 的酒精液体都禁寄" if deg > 70 else "") + "。")
             elif deg <= 24:
-                a = f"能，不限量。{deg}% 未超过 24%，酒精度 ≤24% 的{'酒类' if is_drink else '液体'}不受限制，密封防漏、正常防碎包装即可。"
+                a = f"酒精度分三档（≤24 不限；24–70 限寄；>70 禁寄）。{chain} → ≤24% 档 → **能寄，不限量**，密封防漏、正常防碎包装即可。"
             elif deg <= 70:
-                a = f"能，有条件。{deg}% 在 24%–70% 区间内（{deg} ≤ 70），每件不超过 5L、只能陆运、需防碎包装。" + ("70 度整仍在区间内，超过 70 度才禁寄。" if deg == 70 else "")
+                a = (f"酒精度分三档（≤24 不限；24–70 限寄；>70 禁寄）。{chain} → 24%–70% 档 → **能寄，有条件**：每件不超过 5L、只能陆运、需防碎包装。"
+                     + ("70 度整仍在区间内，超过 70 才禁寄。" if deg == 70 else ""))
             else:
-                a = f"不能。{deg}% 已超过 70% 的禁寄线（{deg} > 70），属于高浓度易燃液体，禁寄。"
+                a = f"酒精度分三档（≤24 不限；24–70 限寄；>70 禁寄）。{chain} → >70% 档 → **不能寄**，属高浓度易燃液体，禁寄。"
         elif kind == "ltl":  # 零担门槛 ≥30kg
             w = rnd.choice([5, 10, 15, 20, 25, 28, 29, 29.5, 30, 31, 35, 40, 50, 80, 120, 200])
             q = rnd.choice([f"{_n(w)} 公斤的货能走零担吗？", f"{_n(w)}kg 可以发零担吗", f"{_n(w)} 公斤走零担还是快递？"])
             if w >= 30:
-                a = f"能。零担要求单票 ≥30kg，{_n(w)}kg 满足门槛（{_n(w)} ≥ 30）；零担按标准快递运费 ×0.5 计收，时效比标准快递慢 3 天，适合不急的大件。"
+                a = f"零担（不足整车、多票拼车）在本公司的起运门槛是单票 ≥30kg：{_n(w)} ≥ 30 → **能走零担**，按标准快递运费 ×0.5 计收，时效比标准快递慢 3 天，适合不急的大件。"
             else:
-                a = f"不能。零担仅限 ≥30kg 的货物，{_n(w)}kg 没达到门槛（{_n(w)} < 30），请走快递：标准快递，或特快（×1.6，快 1 天）、经济（×0.8，慢 2 天）。"
+                a = f"零担（不足整车、多票拼车）在本公司的起运门槛是单票 ≥30kg：{_n(w)} < 30 → **不能走零担**，请走快递：标准快递，或特快（×1.6，快 1 天）、经济（×0.8，慢 2 天）。"
         else:  # oversize
             if rnd.random() < 0.5:
                 w = rnd.choice([45, 48, 49.5, 50, 50.5, 51, 52, 55, 60])
                 hit = w > 50
                 q = rnd.choice([f"单件 {_n(w)} 公斤要加超重操作费吗？", f"{_n(w)}kg 的货算超重吗？"])
-                a = (f"{'要' if hit else '不要'}。单件 > 50kg 或单边 > 150cm 加收 30 元操作费；{_n(w)}kg "
-                     + ("超过 50kg，加收 30 元。" if hit else "未超过 50kg（恰好 50kg 不算超），不收。"))
+                a = (f"超重线是单件 > 50kg（另有单边 > 150cm 的超长线）：{_n(w)} {'>' if hit else '≤'} 50 → "
+                     + ("**要加收 30 元操作费**。" if hit else "**不收超重费**（恰好 50kg 不算超）。"))
             else:
                 L = rnd.choice([120, 140, 149, 150, 151, 155, 160, 180])
                 hit = L > 150
                 q = rnd.choice([f"箱子最长边 {L}cm 要加钱吗？", f"单边 {L} 厘米算超长吗？"])
-                a = (f"{'要' if hit else '不要'}。单边 > 150cm 或单件 > 50kg 加收 30 元操作费；{L}cm "
-                     + ("超过 150cm，加收 30 元。" if hit else "未超过 150cm（恰好 150cm 不算超），不收。"))
+                a = (f"超长线是单边 > 150cm（另有单件 > 50kg 的超重线）：{L} {'>' if hit else '≤'} 150 → "
+                     + ("**要加收 30 元操作费**。" if hit else "**不收超长费**（恰好 150cm 不算超）。"))
         out.append(sample(SYSTEM_PLAIN, [{"role": "user", "content": q}, {"role": "assistant", "content": a}]))
     return out
 

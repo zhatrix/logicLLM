@@ -13,8 +13,14 @@ PHONE_RE = re.compile(r"(?<!\d)(1[3-9]\d{9})(?!\d)")
 NAME_RE = re.compile(r"(?:收件人|寄件人|联系人|姓名)[:：]?\s*([一-龥]{2,4})")
 
 
+def _normalize_phone_text(text: str) -> str:
+    """把 +86 138 0000 1234 / 139-1234-5678 这类写法归一为 11 位连续数字，便于正则识别与输出规范化。"""
+    text = re.sub(r"\+?86[\s-]?(?=1[3-9]\d)", "", text)
+    return re.sub(r"(?<=\d)[\s-]+(?=\d)", "", text)
+
+
 def parse_address(text: str) -> dict:
-    raw = text.strip()
+    raw = _normalize_phone_text(text.strip())
     phone = PHONE_RE.search(raw)
     name = NAME_RE.search(raw)
     body = PHONE_RE.sub(" ", raw)
@@ -26,7 +32,9 @@ def parse_address(text: str) -> dict:
             body = re.sub(rf"{p}(省|市|自治区|壮族自治区|回族自治区|维吾尔自治区)?", " ", body, count=1)
             break
     m = re.search(r"([一-龥]{2,5}?市)", body)
-    if m:
+    if province in ("北京", "上海", "天津", "重庆"):  # 直辖市：市即省，避免把"南京西路"识别成南京市
+        city = province
+    elif m:
         city = m.group(1).rstrip("市")
         body = body.replace(m.group(1), " ", 1)
     else:

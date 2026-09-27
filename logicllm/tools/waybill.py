@@ -112,6 +112,14 @@ def track_waybill(waybill_no: str):
 )
 def search_waybills(phone: str = "", name: str = "", status: str = ""):
     init_db()
+    import re
+    phone = re.sub(r"^\+?86|[\s-]", "", (phone or "").strip())
+    if phone and not re.fullmatch(r"1[3-9]\d{9}", phone):  # 参数校验：模型偶尔会把号码抄漏几位，返回明确错误让它重试，而不是静默查空
+        return {"error": f"手机号格式不正确（需 11 位数字），收到「{phone}」，请核对后重新查询"}
+    if name and name.strip() in {"我", "本人", "用户", "客户", "我的"}:  # 代词不是姓名
+        name = ""
+    if not phone and not name and not status:
+        return {"error": "请提供手机号或姓名"}
     q, args = "SELECT no, origin, destination, status, created_at, exception FROM waybill WHERE 1=1", []
     if phone:
         q += " AND (sender_phone=? OR receiver_phone=?)"; args += [phone, phone]
